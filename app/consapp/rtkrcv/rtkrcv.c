@@ -61,7 +61,8 @@
 #define OPTSDIR     "."                 /* default config directory */
 #define OPTSFILE    "rtkrcv.conf"       /* default config file */
 #define NAVIFILE    "rtkrcv.nav"        /* navigation save file */
-#define ENVFILE     ".env"              /* variables file in options file directory */
+#define ENVFILE     ".env"              /* variables file */
+#define MAXENVUP    16                  /* max directory levels to search variables file */
 #define MAXENV      64                  /* max number of variables in variables file */
 #define MAXENVNAME  64                  /* max length of a variable name */
 #define STATFILE    "rtkrcv_%Y%m%d%h%M.stat"  /* solution status file */
@@ -398,27 +399,58 @@ static void readant(vt_t *vt, prcopt_t *opt, nav_t *nav)
     
     free(pcvr.pcv); free(pcvs.pcv);
 }
+/* open variables file -----------------------------------------------------------
+* open the nearest file ".env" in the directory of the options file or in a
+* directory above it. the search ends at the top directory of a git repository
+* or the root directory
+*-----------------------------------------------------------------------------*/
+static FILE *openenv(const char *optfile)
+{
+    FILE *fp;
+    struct stat st1,st2;
+    char dir[MAXSTR+MAXENVUP*3+8],path[MAXSTR+MAXENVUP*3+32],*p;
+    int i;
+    
+    sprintf(dir,"%.*s",MAXSTR-1,optfile);
+    if ((p=strrchr(dir,'/'))) *(p==dir?p+1:p)='\0'; else strcpy(dir,".");
+    
+    for (i=0;i<=MAXENVUP;i++) {
+        sprintf(path,"%s/%s",dir,ENVFILE);
+        if ((fp=fopen(path,"r"))) {
+            trace(3,"openenv: file=%s\n",path);
+            return fp;
+        }
+        sprintf(path,"%s/.git",dir);
+        if (!stat(path,&st1)) break; /* top of repository */
+        
+        if (stat(dir,&st1)) break;
+        strcat(dir,"/..");
+        if (stat(dir,&st2)||(st1.st_dev==st2.st_dev&&st1.st_ino==st2.st_ino)) {
+            break; /* root directory */
+        }
+    }
+    return NULL;
+}
 /* read variables file -----------------------------------------------------------
-* read variables for ${NAME} in stream paths from the file ".env" in the
-* directory of the options file, to keep logins out of the options file
+* read variables for ${NAME} in stream paths from the file ".env", to keep
+* logins out of the options file
 * args   : char   *optfile  I   options file path
-* notes  : each line is NAME=VALUE. lines starting with # and lines without =
-*          are ignored. "export " before NAME is accepted. VALUE is the rest of
-*          the line without surrounding spaces and optional '...' or "..."
+* notes  : the file is searched from the directory of the options file upward
+*          (see openenv()). each line is NAME=VALUE. lines starting with # and
+*          lines without = are ignored. "export " before NAME is accepted.
+*          VALUE is the rest of the line without surrounding spaces and
+*          optional '...' or "..."
 *-----------------------------------------------------------------------------*/
 static void readenv(const char *optfile)
 {
     FILE *fp;
-    char path[MAXSTR+16],buff[MAXSTR+MAXENVNAME+16],*name,*val,*p;
+    char buff[MAXSTR+MAXENVNAME+16],*name,*val,*p;
     size_t n;
     
     trace(3,"readenv: optfile=%s\n",optfile);
     
     nenv=0;
-    sprintf(path,"%.*s",MAXSTR-1,optfile);
-    if ((p=strrchr(path,'/'))) strcpy(p+1,ENVFILE); else strcpy(path,ENVFILE);
-    
-    if (!(fp=fopen(path,"r"))) return;
+    if (!(fp=openenv(optfile))) return;
     
     while (fgets(buff,sizeof(buff),fp)&&nenv<MAXENV) {
         for (name=buff;*name==' '||*name=='\t';name++) ;
@@ -443,7 +475,7 @@ static void readenv(const char *optfile)
 }
 /* expand variables ------------------------------------------------------------
 * replace ${NAME} in a string by the environment variable NAME or, if it is not
-* set, by NAME in the variables file
+* set, by NAME in the variables file read by readenv()
 * args   : char   *str      I   string
 *          char   *out      O   expanded string
 *          int    size      I   size of out (bytes)
@@ -506,8 +538,9 @@ static int startsvr(vt_t *vt)
     for (i=0;i<8;i++) {
         if (expandenv(strpath[i],xpath[i],MAXSTR,name)) continue;
         if (*name) sprintf(errmsg,"variable ${%s} in a stream path is not set: "
-                           "set it in the environment or in the %s file beside "
-                           "the options file",name,ENVFILE);
+                           "set it in the environment or in a %s file in the "
+                           "folder of the options file or a folder above it",
+                           name,ENVFILE);
         else sprintf(errmsg,"stream path too long");
         trace(2,"%s\n",errmsg);
         vt_printf(vt,"%s\n",errmsg);

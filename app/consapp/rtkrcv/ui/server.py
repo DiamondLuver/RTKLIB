@@ -7,7 +7,8 @@ starts/stops/monitors rtkrcv through its telnet console.
     python3 server.py [--conf FILE] [--port N] [--no-open]
 
 Stream logins are not kept in the options file: rtkrcv fills ${NAME} in stream
-paths from the environment or from the .env file beside the options file.
+paths from the environment or from the nearest .env file, in the folder of the
+options file or a folder above it.
 
 Only the standard library is used. The server listens on 127.0.0.1 only.
 """

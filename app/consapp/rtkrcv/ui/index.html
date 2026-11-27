@@ -228,7 +228,7 @@ function metaHtml(f) {
   const bits = [];
   if (f.key.endsWith("-path") && f.stream) {
     const h = PATH_HELP[val(f.stream + "-type")]; if (h) bits.push("Format: " + esc(h));
-    if (/\$\{[^}]+\}/.test(val(f.key))) bits.push("${NAME} is filled in from the environment or the .env file beside this options file");
+    if (/\$\{[^}]+\}/.test(val(f.key))) bits.push("${NAME} is filled in from the environment or the .env file at the top of the repository");
   }
   if (!f.known) bits.push(`<span class="warnt">Not an option of this rtkrcv build — it is ignored</span>`);
   if (f.kind === "enum" && !f.choices.some(c => c.name === val(f.key)))

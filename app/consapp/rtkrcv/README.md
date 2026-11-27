@@ -31,10 +31,10 @@ extra packages.
 
    This produces `app/consapp/rtkrcv/gcc/rtkrcv`.
 
-2. Put your caster login in `conf/.env`:
+2. Put your caster login in `.env` in the repository root:
 
    ```bash
-   cd ../conf
+   cd ../../../..
    cp .env.example .env
    ```
 
@@ -135,8 +135,11 @@ inpstr1-path       =${NTRIP_USER}:${NTRIP_PASSWORD}@${NTRIP_HOST}:${NTRIP_PORT}/
 ```
 
 `rtkrcv` takes each value from the environment variable `NAME` or, if that is
-not set, from the file `.env` in the same folder as the options file. An
-environment variable therefore overrides `.env`:
+not set, from a file named `.env`. It looks for `.env` in the folder of the
+options file, then in each folder above it up to the top of the repository,
+and uses the first one it finds. The normal place is the repository root; a
+`.env` beside one options file overrides it for that file. An environment
+variable overrides both:
 
 ```bash
 NTRIP_MOUNTPOINT=OTHER ./rtkrcv -s -o ../conf/single.conf
@@ -156,7 +159,7 @@ characters of the `stream` command's Path column and in trace files (`-t`).
 
 | To do this | Set |
 |---|---|
-| Read from an NTRIP caster | `inpstr1-type =ntripcli`, `inpstr1-format =rtcm3`, keep the sample `inpstr1-path` and put the login in `conf/.env` |
+| Read from an NTRIP caster | `inpstr1-type =ntripcli`, `inpstr1-format =rtcm3`, keep the sample `inpstr1-path` and put the login in `.env` |
 | Read from a u-blox receiver on USB | `inpstr1-type =serial`, `inpstr1-path =cu.usbmodem1101:115200:8:n:1:off` (the device name under `/dev`), `inpstr1-format =ubx` |
 | Standalone position, no base station | `pos1-posmode =single` |
 | RTK with a base station | `pos1-posmode =kinematic`, fill in `inpstr2-type`, `inpstr2-path`, `inpstr2-format`, and set `ant2-postype =rtcm` |
@@ -424,7 +427,7 @@ All optional. Leave empty unless an option above says it needs one.
 | The input never connects, or connects and gets no data | Another `rtkrcv` is already using the caster login. `pgrep -l rtkrcv`, then `pkill rtkrcv`. Also check user, password and mountpoint. |
 | `output sol1` shows `waiting...` | Normal for `tcpsvr`: nothing has connected to the port yet. |
 | An option seems to have no effect | Its name is misspelt (ignored without any message), or its value is not one of the accepted names (`invalid option value` is printed at startup and the default is kept). The web UI flags both. |
-| `variable ${NAME} in a stream path is not set` and the server does not start | A stream path uses `${NAME}` but `NAME` is neither in the environment nor in `.env` beside the options file. Add it to `conf/.env`. |
+| `variable ${NAME} in a stream path is not set` and the server does not start | A stream path uses `${NAME}` but `NAME` is neither in the environment nor in `.env`. Add it to `.env` in the repository root. If you use `rtkrcv` outside the repository, put `.env` beside the options file. |
 | No position although data is decoded | Wait a minute or two after the first start: a position needs orbit data for each satellite, which arrives gradually. |
 | `undefined reference to clock_gettime` when building on Linux | The makefile links without `-lrt`, which macOS does not have. On Linux with glibc older than 2.17, add `-lrt` to `LDLIBS` in `gcc/makefile`. |
 
@@ -442,9 +445,9 @@ All optional. Leave empty unless an option above says it needs one.
 - `rtkrcv.c`: starting with `-s` and a `file` output crashed in the overwrite
   check, which assumed a console existed.
 - `rtkrcv.c`: `${NAME}` in stream paths is filled in from the environment or
-  from a `.env` file beside the options file, so logins stay out of the
-  options file.
-- `conf/single.conf`, `conf/.env.example`: sample configuration for
+  from a `.env` file in the folder of the options file or a folder above it,
+  so logins stay out of the options file.
+- `conf/single.conf`, `.env.example`: sample configuration for
   single-point positioning from an NTRIP caster, with solution output to TCP
   port 10009 and to a file.
 - `ui/`: the web UI.

@@ -9,3 +9,6 @@ Debug
 Debug_Build
 __history
 __astcache
+
+# private values for ${NAME} in rtkrcv stream paths (see .env.example)
+.env

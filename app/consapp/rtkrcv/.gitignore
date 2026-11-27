@@ -1,6 +1,3 @@
-# private values for ${NAME} in stream paths
-conf/.env
-
 # build and run output of rtkrcv
 gcc/rtkrcv
 gcc/rtkrcv.nav
