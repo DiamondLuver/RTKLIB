@@ -93,27 +93,75 @@ start.
 
 ## Web UI
 
-```bash
-cd app/consapp/rtkrcv/ui
-python3 server.py
-```
+The web UI does the same job as the commands above from a browser page: it
+edits the configuration, starts and stops `rtkrcv`, and shows the solution with
+graphs.
 
-This opens `http://127.0.0.1:8765/`. It edits `conf/single.conf`; use
-`--conf FILE` for another file and `--port N` for another port.
+### Start it
 
-- **Configuration pages** show every option in the file with the values this
-  build accepts. Saving rewrites only the lines you changed; comments and
-  layout are kept. Edits made to the file in a text editor appear in the page
-  within a couple of seconds.
-- **Start / Stop / Restart** run `rtkrcv` with that file. Changes take effect on
-  restart, and the page says when the running copy is behind the file.
-- **Monitor** shows the solution, the streams and the satellites, updated every
-  second.
+1. If `rtkrcv` is running in a terminal, stop it first with `shutdown`. Two
+   copies compete for the same caster login and output ports.
 
-The page is served on this computer only. Ctrl-C in the terminal stops the UI
-and the `rtkrcv` it started. Stop any `rtkrcv` running in a terminal before
-pressing Start, or the two compete for the same caster login and ports; the
-page warns when it sees one.
+2. Start the UI:
+
+   ```bash
+   cd app/consapp/rtkrcv/ui
+   python3 server.py
+   ```
+
+   Your browser opens `http://127.0.0.1:8765/`. Leave this terminal open.
+
+3. Click **Start** at the top right. The Monitor page fills in within a few
+   seconds.
+
+4. To quit, press Ctrl-C in that terminal. This stops the UI and the `rtkrcv`
+   it started.
+
+Options: `--conf FILE` edits and runs another options file (default
+`conf/single.conf`), `--port N` uses another web port if 8765 is taken, and
+`--no-open` does not open the browser.
+
+### What is on the page
+
+**Monitor**
+
+- Tiles with the solution status, satellites used, latitude, longitude,
+  height, receiver time and PDOP.
+- **Streams**: each input and output, whether it is connected, and the bytes
+  and rate in and out. The caster password is masked.
+- **Position history**: every solution since the start, up to the last hour.
+  - *Ground track*: east and north offset of each solution from the mean
+    position, in metres. The large dot is the latest solution.
+  - *East, north and up over time*: the same offsets against time, with the
+    standard deviation of each.
+  - Point at either graph, or focus it and use the arrow keys, to read one
+    solution; it is marked on both graphs.
+  - The buttons above the graphs limit them to the last 1, 5 or 15 minutes.
+    **Clear history** starts again from now. "Recent solutions as a table"
+    lists the same data as numbers.
+- **Sky plot**: where each satellite is, north up and the zenith in the
+  centre. Filled dots are used in the solution; hollow ones are tracked but
+  not used, for example because they are below `pos1-elmask`, which is drawn
+  as a ring.
+- **Satellites**: the table behind the sky plot, with residuals.
+
+The history is kept by the UI while `rtkrcv` runs, also when no page is open.
+It starts again when `rtkrcv` is started or restarted.
+
+**Configuration**
+
+- One page per group of options, and a search box. Each option offers the
+  values this build accepts.
+- **Save** rewrites only the lines you changed; comments and layout are kept.
+  Edits made to the file in a text editor appear in the page within a couple
+  of seconds.
+- Changes take effect when `rtkrcv` restarts. Use **Save and restart**, or the
+  page tells you when the running copy is behind the file.
+- Logins are not shown: stream paths appear as written, with their `${NAME}`
+  placeholders.
+
+The page is served on this computer only. If `rtkrcv` is already running
+outside the UI, the page says so and offers to stop it.
 
 ## Configuration
 
@@ -450,4 +498,4 @@ All optional. Leave empty unless an option above says it needs one.
 - `conf/single.conf`, `.env.example`: sample configuration for
   single-point positioning from an NTRIP caster, with solution output to TCP
   port 10009 and to a file.
-- `ui/`: the web UI.
+- `ui/`: the web UI, with graphs of the position history and a sky plot.

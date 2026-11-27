@@ -2,7 +2,8 @@
 """Web UI for rtkrcv.
 
 Edits an rtkrcv options file (conf/single.conf by default) in place and
-starts/stops/monitors rtkrcv through its telnet console.
+starts/stops/monitors rtkrcv through its telnet console, with graphs of the
+position history and the satellites in view.
 
     python3 server.py [--conf FILE] [--port N] [--no-open]
 
@@ -13,7 +14,10 @@ options file or a folder above it.
 Only the standard library is used. The server listens on 127.0.0.1 only.
 """
 import argparse
+import calendar
+import collections
 import json
+import math
 import os
 import re
 import secrets
@@ -27,6 +31,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RTKRCV_DIR = os.path.dirname(HERE)
@@ -385,9 +390,67 @@ def parse_satellites(text):
     return {"header": header, "rows": rows}
 
 
+def ecef2llh(x, y, z):
+    """ECEF (m) to WGS84 latitude, longitude (deg) and ellipsoidal height (m)."""
+    a, f = 6378137.0, 1 / 298.257223563
+    e2 = f * (2 - f)
+    r2 = x * x + y * y
+    zz, zk, v = z, 0.0, a
+    for _ in range(20):
+        if abs(zz - zk) < 1e-4:
+            break
+        zk = zz
+        sinp = zz / math.sqrt(r2 + zz * zz)
+        v = a / math.sqrt(1 - e2 * sinp * sinp)
+        zz = z + v * e2 * sinp
+    return [math.degrees(math.atan2(zz, math.sqrt(r2))), math.degrees(math.atan2(y, x)),
+            math.sqrt(r2 + zz * zz) - v]
+
+
+def pick_position(status):
+    """Rover position of the current solution from the status values, or None.
+
+    The fixed or float position is used when that is the solution status,
+    otherwise the single-point position.
+    """
+    def numbers(key):
+        try:
+            return [float(v) for v in re.split(r"[ ,]+", status.get(key, "").strip()) if v]
+        except ValueError:
+            return []
+
+    def from_xyz(key):
+        p = numbers(key)
+        return ecef2llh(*p) if len(p) == 3 and any(p) else None
+
+    sol = status.get("solution status", "-")
+    pos, src = None, ""
+    if sol == "fix":
+        pos, src = from_xyz("pos xyz fixed (m) rover"), "fixed solution"
+    elif sol in ("float", "PPP", "DGPS"):
+        pos, src = from_xyz("pos xyz float (m) rover"), sol + " solution"
+    if not pos:
+        p = numbers("pos llh single (deg,m) rover")
+        if len(p) == 3 and any(p):
+            pos, src = p, "single-point solution"
+    return {"lat": pos[0], "lon": pos[1], "h": pos[2], "src": src} if pos else None
+
+
+def receiver_time(status):
+    """Receiver time of the solution as seconds since 1970 (GPST), or None."""
+    text = status.get("time of receiver clock rover", "-")
+    m = re.match(r"^(\d{4})/(\d\d)/(\d\d) (\d\d):(\d\d):(\d\d)(\.\d+)?", text)
+    if not m:
+        return None
+    y, mo, d, h, mi, sec = (int(g) for g in m.groups()[:6])
+    return calendar.timegm((y, mo, d, h, mi, sec)) + float(m.group(7) or 0)
+
+
 # ----------------------------------------------------------------------------
 # rtkrcv process
 # ----------------------------------------------------------------------------
+TRACK_MAX = 3600        # solutions kept for the graphs (one hour at 1 Hz)
+
 class Runner:
     def __init__(self, conf, console_port):
         self.conf = conf
@@ -400,6 +463,8 @@ class Runner:
         self.last_exit = None
         self.cache = None
         self.cache_time = 0.0
+        self.track = collections.deque(maxlen=TRACK_MAX)   # [time, lat, lon, h, status, nsat]
+        self.track_id = 0                                   # changes when the track restarts
         self.logdir = tempfile.mkdtemp(prefix="rtkrcv-ui-")
         self.logpath = os.path.join(self.logdir, "rtkrcv.log")
 
@@ -460,6 +525,7 @@ class Runner:
                 return "options file not found: " + self.conf
             self._stopping = False
             self.last_exit = None
+            self.clear_track()
             log = open(self.logpath, "wb")
             try:
                 self.proc = subprocess.Popen(
@@ -507,6 +573,45 @@ class Runner:
             return str(e)
         return ""
 
+    # -- solution history -----------------------------------------------------
+    def clear_track(self):
+        with self.lock:
+            self.track.clear()
+            self.track_id += 1
+
+    def _record(self, live):
+        """Append the current solution to the track, once per receiver time."""
+        pos, t = live["pos"], receiver_time(live["status"])
+        if not pos or t is None:
+            return
+        t = round(t, 3)
+        if self.track and t <= self.track[-1][0]:
+            return
+        st = live["status"]
+        try:
+            ns = int(st.get("# of valid satellites", "0"))
+        except ValueError:
+            ns = 0
+        self.track.append([t, round(pos["lat"], 9), round(pos["lon"], 9), round(pos["h"], 4),
+                           st.get("solution status", "-"), ns])
+
+    def track_since(self, track_id, after):
+        """Points newer than `after` if the client holds this track, else all."""
+        with self.lock:
+            reset = track_id != self.track_id
+            pts = [p for p in self.track if reset or p[0] > after]
+            return {"id": self.track_id, "reset": reset, "points": pts}
+
+    def sample_forever(self):
+        """Keep the track growing while no page is open."""
+        while True:
+            time.sleep(1.0)
+            try:
+                if self.proc:
+                    self.snapshot()
+            except Exception:
+                pass
+
     # -- monitoring -----------------------------------------------------------
     def snapshot(self):
         with self.lock:
@@ -524,6 +629,8 @@ class Runner:
                             "streams": parse_streams(self.console.cmd("stream")),
                             "sats": parse_satellites(self.console.cmd("satellite")),
                         }
+                        live["pos"] = pick_position(live["status"])
+                        self._record(live)
                         self.cache, self.cache_time = live, now
                     except Exception as e:      # console not up yet, or lost
                         self.console.close()
@@ -599,6 +706,14 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/state":
             if self._allowed(True):
                 self._send(200, self.runner.snapshot())
+        elif path == "/api/track":
+            if self._allowed(True):
+                q = parse_qs(urlsplit(self.path).query)
+                try:
+                    tid, after = int(q.get("id", ["-1"])[0]), float(q.get("after", ["0"])[0])
+                except ValueError:
+                    tid, after = -1, 0.0
+                self._send(200, self.runner.track_since(tid, after))
         else:
             self._send(404, {"error": "not found"})
 
@@ -633,6 +748,9 @@ class Handler(BaseHTTPRequestHandler):
             err = r.stop()
         elif path == "/api/restart":
             err = r.stop() or r.start()
+        elif path == "/api/clear-track":
+            r.clear_track()
+            err = ""
         elif path == "/api/stop-other":
             pid = data.get("pid")
             err = r.stop_other(pid) if isinstance(pid, int) else "bad pid"
@@ -657,6 +775,7 @@ def main():
         sys.exit("options file not found: " + conf)
 
     runner = Runner(conf, args.console_port)
+    threading.Thread(target=runner.sample_forever, daemon=True).start()
     Handler.runner = runner
     Handler.token = secrets.token_urlsafe(24)
     Handler.hosts = ("127.0.0.1:%d" % args.port, "localhost:%d" % args.port)

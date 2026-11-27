@@ -10,6 +10,7 @@
   --line: #e1e5ea; --accent: #0b7a70; --accent-ink: #ffffff; --accent-soft: #e2f3f0;
   --ok: #1a8a4c; --warn: #a15c00; --warn-soft: #fdf1dc; --bad: #c0362c; --bad-soft: #fde9e6;
   --changed: #fff6d9; --changed-line: #e2b93b;
+  --series-1: #257de0; --grid: #e7e9ee; --axis: #c2c7cf;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -19,6 +20,7 @@
     --line: #272f3a; --accent: #35c9b6; --accent-ink: #06201c; --accent-soft: #12332f;
     --ok: #4fce85; --warn: #f0b354; --warn-soft: #33270f; --bad: #ff7b6e; --bad-soft: #3a1b18;
     --changed: #332b10; --changed-line: #b08d1f;
+    --series-1: #338ced; --grid: #262d37; --axis: #47505c;
   }
 }
 * { box-sizing: border-box; }
@@ -93,6 +95,38 @@ h3 { font-size: 13px; margin: 0; }
 .card .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .v.ok { color: var(--ok); } .v.warn { color: var(--warn); } .v.dim { color: var(--muted); }
 
+.panel > details { border-top: 1px solid var(--line); }
+.filters { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.filters .lbl { color: var(--muted); font-size: 12.5px; margin-right: 4px; }
+.filters .sp { flex: 1; }
+.seg { border: 1px solid var(--line); background: var(--surface); padding: 4px 10px; border-radius: 7px; cursor: pointer; font-size: 12.5px; }
+.seg:hover { border-color: var(--muted); }
+.seg.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.charts { display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 16px 24px; padding: 14px; }
+figure { margin: 0; min-width: 0; }
+figcaption { font-size: 12.5px; font-weight: 600; margin-bottom: 8px; }
+figcaption span { font-weight: 400; color: var(--muted); margin-left: 6px; }
+canvas.chart { display: block; width: 100%; border-radius: 6px; touch-action: pan-y; }
+canvas.chart:focus-visible, .sky circle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#cvTrack { aspect-ratio: 1 / 1; }
+#cvSeries { height: 340px; }
+.satwrap { display: grid; grid-template-columns: 372px minmax(0, 1fr); gap: 16px; align-items: start; }
+.satwrap > div:empty { display: none; }
+.sky svg { display: block; width: 100%; max-width: 340px; margin: 6px auto 0; }
+.sky circle[data-sat] { cursor: default; outline: none; }
+.legend { display: flex; gap: 6px 16px; flex-wrap: wrap; justify-content: center; font-size: 12px; padding: 4px 14px 6px; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; box-sizing: border-box; }
+.legend i.used { background: var(--series-1); }
+.legend i.unused { border: 1.5px solid var(--muted); }
+.sysnote { color: var(--muted); font-size: 11.5px; text-align: center; padding: 0 14px 12px; }
+.tip { position: fixed; z-index: 20; pointer-events: none; display: none; min-width: 130px; padding: 8px 10px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 12px; }
+.tip .tt { color: var(--muted); margin-bottom: 4px; }
+.tip .row { display: flex; align-items: center; gap: 6px; }
+.tip .row b { font-variant-numeric: tabular-nums; }
+.tip .row .lab { color: var(--muted); }
+.tip .key { width: 12px; height: 2px; border-radius: 1px; background: var(--series-1); flex: none; }
+.tip .ft { color: var(--muted); margin-top: 4px; }
 .scroll { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 th, td { text-align: left; padding: 6px 12px; border-top: 1px solid var(--line); white-space: nowrap; }
@@ -133,6 +167,8 @@ details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-
   .nav .label { display: none; }
   .nav button { width: auto; white-space: nowrap; flex: 0 0 auto; }
   .field { grid-template-columns: minmax(0, 1fr); }
+  .charts, .satwrap { grid-template-columns: minmax(0, 1fr); }
+  #cvTrack { max-width: 420px; margin: 0 auto; }
   .field .k { padding-top: 0; }
   .meta { grid-column: 1; }
 }
@@ -158,6 +194,7 @@ details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-
   <button class="btn" id="bSaveRestart">Save and restart</button>
 </div></div>
 <div class="toast" id="toast"></div>
+<div class="tip" id="tip" role="status"></div>
 
 <script>
 const TOKEN = "__TOKEN__";
@@ -319,22 +356,7 @@ async function save(restart) {
 }
 
 /* ---------- monitor ---------- */
-function ecef2llh(x, y, z) {
-  const a = 6378137, f = 1 / 298.257223563, e2 = f * (2 - f), r2 = x * x + y * y;
-  let zz = z, zk = 0, v = a;
-  for (let i = 0; i < 20 && Math.abs(zz - zk) >= 1e-4; i++) { zk = zz; const s = zz / Math.sqrt(r2 + zz * zz); v = a / Math.sqrt(1 - e2 * s * s); zz = z + v * e2 * s; }
-  return [Math.atan2(zz, Math.sqrt(r2)) * 180 / Math.PI, Math.atan2(y, x) * 180 / Math.PI, Math.sqrt(r2 + zz * zz) - v];
-}
 const nums = s => (s || "").split(/[ ,]+/).filter(Boolean).map(Number);
-function position(st) {
-  const sol = st["solution status"] || "-";
-  const pick = k => { const p = nums(st[k]); return p.length === 3 && p.some(v => v !== 0) ? ecef2llh(p[0], p[1], p[2]) : null; };
-  let p = null, src = "";
-  if (sol === "fix") { p = pick("pos xyz fixed (m) rover"); src = "fixed solution"; }
-  else if (["float", "PPP", "DGPS"].includes(sol)) { p = pick("pos xyz float (m) rover"); src = sol + " solution"; }
-  if (!p) { const s = nums(st["pos llh single (deg,m) rover"]); if (s.length === 3 && s.some(v => v !== 0)) { p = s; src = "single-point solution"; } }
-  return { p, src };
-}
 function bytes(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(2) + " MB"; }
 function dur(s) { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + "h " : "") + (h || m ? m + "m " : "") + (s % 60) + "s"; }
 function maskPath(r) {          // hide the password of user:passwd@addr paths (the console cuts them at 24 chars)
@@ -364,7 +386,8 @@ function monitorParts() {
     return parts;
   }
   if (!r.live) { parts.body = `<div class="panel"><div class="empty">Starting rtkrcv…</div></div>`; return parts; }
-  const st = r.live.status, sol = st["solution status"] || "-", { p, src } = position(st);
+  const st = r.live.status, sol = st["solution status"] || "-", pos = r.live.pos;
+  const p = pos ? [pos.lat, pos.lon, pos.h] : null, src = pos ? pos.src : "";
   const solCls = sol === "fix" ? "ok" : sol === "-" ? "dim" : sol === "single" ? "" : "warn";
   const dop = nums(st["GDOP/PDOP/HDOP/VDOP"]), hasDop = dop.length === 4 && dop[1] > 0;
   const tm = st["time of receiver clock rover"] || "-", hasT = tm.length > 20;
@@ -385,6 +408,17 @@ function monitorParts() {
       <td class="n">${bytes(s.inb)}</td><td class="n">${s.inr.toLocaleString()} bps</td><td class="n">${bytes(s.outb)}</td><td class="n">${s.outr.toLocaleString()} bps</td>
       <td class="mono">${esc(maskPath(s))}</td><td class="wrap">${esc(s.msg)}</td></tr>`).join("") || `<tr><td colspan="10">No active streams.</td></tr>`) + `</tbody></table></div></div>`;
   const sat = r.live.sats;
+  parts.history = `<div class="panel"><div class="head"><h3>Position history</h3><span id="histSub"></span></div>
+    <div class="filters"><span class="lbl">Show the last</span>${RANGES.map(([v, t]) => `<button class="seg${T.range === v ? " on" : ""}" data-range="${v}" aria-pressed="${T.range === v}">${t}</button>`).join("")}<span class="sp"></span><button class="btn small" data-act="clear-track">Clear history</button></div>
+    <div class="charts">
+      <figure><figcaption>Ground track<span>offset from the mean position</span></figcaption><canvas class="chart" id="cvTrack" tabindex="0" role="img" aria-label="Ground track: east and north offset of each solution from the mean position. Use the arrow keys to step through solutions."></canvas></figure>
+      <figure><figcaption>East, north and up over time<span>offset from the mean · time in GPST</span></figcaption><canvas class="chart" id="cvSeries" tabindex="0" role="img" aria-label="East, north and up offset of each solution over time. Use the arrow keys to step through solutions."></canvas></figure>
+    </div>
+    <details data-d="hist"${S.open.hist ? " open" : ""}><summary>Recent solutions as a table</summary><div class="scroll" id="histTable"></div></details></div>`;
+  parts.sky = `<div class="panel sky"><div class="head"><h3>Sky plot</h3><span id="skySub"></span></div>
+    <svg id="sky" viewBox="0 0 340 340" role="group" aria-label="Sky plot: satellites by azimuth and elevation, north up, zenith at the centre"></svg>
+    <div class="legend"><span><i class="used"></i>Used in the solution</span><span><i class="unused"></i>Tracked, not used</span></div>
+    <div class="sysnote">G GPS · R GLONASS · E Galileo · C BeiDou · J QZSS · I NavIC · numbers SBAS</div></div>`;
   parts.sats = `<details class="panel" data-d="sats"${S.open.sats === false ? "" : " open"}><summary>Satellites (${sat.rows.length})</summary><div class="scroll"><table>
     <thead><tr>${sat.header.map((h, i) => `<th class="${i > 1 ? "n" : ""}">${esc(h)}</th>`).join("")}</tr></thead><tbody>` +
     sat.rows.map(row => `<tr>${row.map((c, i) => `<td class="${i > 1 ? "n" : ""}${i === 0 ? " mono" : ""}${c === "OK" ? " okc" : ""}">${esc(c)}</td>`).join("")}</tr>`).join("") + `</tbody></table></div></details>`;
@@ -392,17 +426,20 @@ function monitorParts() {
     Object.keys(st).map(k => `<tr><td>${esc(k)}</td><td class="mono wrap">${esc(st[k])}</td></tr>`).join("") + `</tbody></table></div></details>`;
   return parts;
 }
-const ORDER = ["others", "stale", "error", "exit", "cards", "streams", "sats", "all", "body"];
+const ORDER = ["others", "stale", "error", "exit", "cards", "streams", "history", "sky", "sats", "all", "body"];
 function renderMonitor(full) {
   const main = $("main");
   if (full || !main.querySelector("[data-mon]")) {
-    main.innerHTML = `<h2>Monitor</h2><p class="sub" id="monSub"></p>` + ORDER.map(k => `<div data-mon="${k}"></div>`).join("");
-    S.html = {};
+    const slot = k => `<div data-mon="${k}"></div>`;
+    main.innerHTML = `<h2>Monitor</h2><p class="sub" id="monSub"></p>` + ["others", "stale", "error", "exit", "cards", "streams", "history"].map(slot).join("") +
+      `<div class="satwrap">${slot("sky")}${slot("sats")}</div>` + ["all", "body"].map(slot).join("");
+    S.html = {}; T.skyKey = "";
   }
   const parts = monitorParts();
   for (const k of ORDER) { const h = parts[k] || ""; if (S.html[k] !== h) { main.querySelector(`[data-mon="${k}"]`).innerHTML = h; S.html[k] = h; } }
   const r = S.run;
   $("monSub").textContent = r && r.running ? `Running for ${dur(r.uptime)} · pid ${r.pid} · updates every second` : "Live solution, streams and satellites";
+  drawCharts();
 }
 function renderHeader() {
   const r = S.run, pill = $("pill");
@@ -428,9 +465,247 @@ async function poll() {
       else if (!S.diskChanged) { S.diskChanged = true; renderSaveBar(); }
     }
   } catch (e) { S.run = null; }
+  if (S.run && S.run.running) { try { await pollTrack(); } catch (e) { /* keep the previous track */ } }
   renderHeader();
   if (!S.q && S.view === "monitor") renderMonitor();
   setTimeout(poll, 1000);
+}
+
+/* ---------- graphs ---------- */
+const D2R = Math.PI / 180;
+const T = { id: -1, pts: [], range: 0, sel: null, win: null, geo: {}, skyKey: "", sky: [] };
+const RANGES = [[60, "1 min"], [300, "5 min"], [900, "15 min"], [0, "All"]];
+const SYS = { G: "GPS", R: "GLONASS", E: "Galileo", C: "BeiDou", J: "QZSS", S: "SBAS", I: "NavIC" };
+const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const hms = t => new Date(Math.round(t) * 1000).toISOString().slice(11, 19);
+const signed = (v, d) => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(d);
+
+async function pollTrack() {
+  const last = T.pts.length ? T.pts[T.pts.length - 1][0] : 0;
+  const r = await api(`/api/track?id=${T.id}&after=${last}`);
+  if (r.reset) { T.pts = []; T.sel = null; }
+  T.id = r.id;
+  for (const p of r.points) T.pts.push(p);
+  if (T.pts.length > 3600) T.pts.splice(0, T.pts.length - 3600);
+}
+function windowed() {            // solutions in the chosen time range, as east/north/up offsets from their mean
+  let pts = T.pts;
+  if (T.range && pts.length) { const t0 = pts[pts.length - 1][0] - T.range; pts = pts.filter(p => p[0] >= t0); }
+  const n = pts.length;
+  if (!n) return null;
+  let la = 0, lo = 0, h = 0;
+  for (const p of pts) { la += p[1]; lo += p[2]; h += p[3]; }
+  la /= n; lo /= n; h /= n;
+  const a = 6378137, e2 = 6.69437999014e-3, s = Math.sin(la * D2R), w = Math.sqrt(1 - e2 * s * s);
+  const kn = D2R * (a * (1 - e2) / (w * w * w) + h), ke = D2R * (a / w + h) * Math.cos(la * D2R);
+  const e = pts.map(p => (p[2] - lo) * ke), nn = pts.map(p => (p[1] - la) * kn), u = pts.map(p => p[3] - h);
+  const sd = v => Math.sqrt(v.reduce((q, x) => q + x * x, 0) / v.length);
+  return { pts, n, ref: [la, lo, h], e, nn, u, sd: [sd(e), sd(nn), sd(u)] };
+}
+const selIndex = W => (W && T.sel !== null ? W.pts.findIndex(p => p[0] === T.sel) : -1);
+function niceStep(span, n) { const raw = span / n, p = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; }
+function niceHalf(m) { m = Math.max(m, 0.01); const step = niceStep(2 * m, 4); return { half: Math.ceil(m / step - 1e-9) * step, step }; }
+const dec = step => Math.max(0, -Math.floor(Math.log10(step) + 1e-9));
+function canvas(id) {
+  const cv = $(id); if (!cv) return null;
+  const dpr = window.devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (!w || !h) return null;
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const c = cv.getContext("2d"); c.setTransform(dpr, 0, 0, dpr, 0, 0); c.clearRect(0, 0, w, h);
+  return { c, w, h };
+}
+const FONT = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+function dot(c, K, x, y, r) {      // marker with a surface ring so it stays legible over other marks
+  c.fillStyle = K.surface; c.beginPath(); c.arc(x, y, r + 2, 0, 6.2832); c.fill();
+  c.fillStyle = K.series; c.beginPath(); c.arc(x, y, r, 0, 6.2832); c.fill();
+}
+function waiting(g, K) { g.c.font = FONT; g.c.fillStyle = K.muted; g.c.textAlign = "center"; g.c.textBaseline = "middle"; g.c.fillText("Waiting for the first solution…", g.w / 2, g.h / 2); }
+
+function drawTrack(W, K) {
+  const g = canvas("cvTrack"); if (!g) return;
+  if (!W) { T.geo.track = null; return waiting(g, K); }
+  const { c, w, h } = g, L = 46, R = 10, Tp = 8, B = 36, pw = w - L - R, ph = h - Tp - B, size = Math.min(pw, ph);
+  const cx = L + pw / 2, cy = Tp + ph / 2;
+  let m = 0;
+  for (let i = 0; i < W.n; i++) m = Math.max(m, Math.abs(W.e[i]), Math.abs(W.nn[i]));
+  const { half, step } = niceHalf(m * 1.1), k = size / 2 / half, d = dec(step);
+  const X = v => cx + v * k, Y = v => cy - v * k;
+  c.font = FONT; c.lineWidth = 1;
+  for (let v = -half; v <= half + step / 2; v += step) {
+    const zero = Math.abs(v) < step / 2, label = (zero ? 0 : v).toFixed(d);
+    c.strokeStyle = zero ? K.axis : K.grid; c.beginPath();
+    c.moveTo(Math.round(X(v)) + .5, Y(half)); c.lineTo(Math.round(X(v)) + .5, Y(-half));
+    c.moveTo(X(-half), Math.round(Y(v)) + .5); c.lineTo(X(half), Math.round(Y(v)) + .5); c.stroke();
+    c.fillStyle = K.muted; c.textBaseline = "middle"; c.textAlign = "right"; c.fillText(label, X(-half) - 6, Y(v));
+    c.textAlign = "center"; c.fillText(label, X(v), Y(-half) + 12);
+  }
+  c.fillStyle = K.muted; c.textAlign = "center"; c.textBaseline = "alphabetic"; c.fillText("East (m)", cx, h - 4);
+  c.save(); c.translate(11, cy); c.rotate(-Math.PI / 2); c.fillText("North (m)", 0, 0); c.restore();
+  const r = W.n > 600 ? 1.5 : 2;
+  c.fillStyle = K.series; c.globalAlpha = W.n > 600 ? .35 : .55;
+  for (let i = 0; i < W.n - 1; i++) { c.beginPath(); c.arc(X(W.e[i]), Y(W.nn[i]), r, 0, 6.2832); c.fill(); }
+  c.globalAlpha = 1;
+  dot(c, K, X(W.e[W.n - 1]), Y(W.nn[W.n - 1]), 5);            // latest solution
+  const i = selIndex(W);
+  if (i >= 0) { dot(c, K, X(W.e[i]), Y(W.nn[i]), 4); c.strokeStyle = K.ink; c.lineWidth = 1.5; c.beginPath(); c.arc(X(W.e[i]), Y(W.nn[i]), 8, 0, 6.2832); c.stroke(); }
+  T.geo.track = j => [X(W.e[j]), Y(W.nn[j])];
+}
+function drawSeries(W, K) {
+  const g = canvas("cvSeries"); if (!g) return;
+  if (!W) { T.geo.series = null; return waiting(g, K); }
+  const { c, w, h } = g, L = 46, R = 62, Tp = 2, B = 22, pw = w - L - R, rowH = (h - Tp - B) / 3;
+  const t0 = W.pts[0][0], t1 = Math.max(W.pts[W.n - 1][0], t0 + 1), X = t => L + (t - t0) / (t1 - t0) * pw;
+  const sel = selIndex(W);
+  [["East (m)", W.e, W.sd[0]], ["North (m)", W.nn, W.sd[1]], ["Up (m)", W.u, W.sd[2]]].forEach(([name, v, sd], j) => {
+    const top = Tp + j * rowH, y0 = top + 26, y1 = top + rowH - 8, mid = (y0 + y1) / 2;
+    let m = 0; for (const x of v) m = Math.max(m, Math.abs(x));
+    const { half, step } = niceHalf(m * 1.1), d = dec(step), Y = x => mid - x / half * (y1 - y0) / 2;
+    c.textBaseline = "alphabetic"; c.textAlign = "left";
+    c.font = "600 " + FONT; c.fillStyle = K.ink; c.fillText(name, L, top + 12);
+    const tw = c.measureText(name).width; c.font = FONT; c.fillStyle = K.muted; c.fillText("σ " + sd.toFixed(3), L + tw + 10, top + 12);
+    c.lineWidth = 1; c.textBaseline = "middle"; c.textAlign = "right";
+    for (const x of [-half, 0, half]) {
+      c.strokeStyle = x === 0 ? K.axis : K.grid; c.beginPath(); c.moveTo(L, Math.round(Y(x)) + .5); c.lineTo(L + pw, Math.round(Y(x)) + .5); c.stroke();
+      c.fillStyle = K.muted; c.fillText(x === 0 ? "0" : signed(x, d), L - 6, Y(x));
+    }
+    c.strokeStyle = K.series; c.lineWidth = 2; c.lineJoin = c.lineCap = "round"; c.beginPath();
+    for (let i = 0; i < W.n; i++) {
+      const x = X(W.pts[i][0]), y = Y(v[i]);
+      if (i === 0 || W.pts[i][0] - W.pts[i - 1][0] > 5) c.moveTo(x, y); else c.lineTo(x, y);   // a gap in time breaks the line
+    }
+    c.stroke();
+    const xe = X(W.pts[W.n - 1][0]), ye = Y(v[W.n - 1]);
+    dot(c, K, xe, ye, 4);
+    c.fillStyle = K.ink; c.textAlign = "left"; c.fillText(signed(v[W.n - 1], 3), xe + 9, ye);       // value at the line's end
+    if (sel >= 0) dot(c, K, X(W.pts[sel][0]), Y(v[sel]), 4);
+  });
+  if (sel >= 0) {               // crosshair through all three panels
+    const x = Math.round(X(W.pts[sel][0])) + .5;
+    c.globalCompositeOperation = "destination-over"; c.strokeStyle = K.axis; c.lineWidth = 1; c.beginPath(); c.moveTo(x, Tp + 18); c.lineTo(x, h - B); c.stroke();
+    c.globalCompositeOperation = "source-over";
+  }
+  const tick = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].find(v => (t1 - t0) / v <= 5) || 3600;   // round times, at most five
+  c.font = FONT; c.fillStyle = K.muted; c.textBaseline = "alphabetic"; c.textAlign = "center"; c.strokeStyle = K.axis; c.lineWidth = 1;
+  for (let t = Math.ceil(t0 / tick) * tick; t <= t1 + 1e-6; t += tick) {
+    const x = Math.round(X(t)) + .5;
+    c.beginPath(); c.moveTo(x, h - B); c.lineTo(x, h - B + 4); c.stroke();
+    c.fillText(tick >= 60 ? hms(t).slice(0, 5) : hms(t), x, h - 5);
+  }
+  T.geo.series = { L, pw, t0, t1, X };
+}
+function svgEl(name, attrs, text) {
+  const e = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function drawSky(K) {
+  const svg = $("sky"); if (!svg || !S.run || !S.run.live) return;
+  const sat = S.run.live.sats, H = sat.header, iS = H.indexOf("SAT"), iC = H.indexOf("C1"), iA = H.indexOf("Az"), iE = H.indexOf("El");
+  const list = sat.rows.map(r => ({ id: r[iS], used: r[iC] === "OK", az: +r[iA], el: +r[iE] })).filter(s => s.el > 0 && s.el <= 90)
+    .sort((a, b) => a.used - b.used);
+  const mask = +S.orig["pos1-elmask"] || 0;
+  const key = JSON.stringify([list, mask, K.series, K.ink, K.surface]);
+  const nUsed = list.filter(s => s.used).length;
+  $("skySub").textContent = `${nUsed} used · ${list.length - nUsed} not used`;
+  if (key === T.skyKey && svg.childNodes.length) return;
+  T.skyKey = key; T.sky = list;
+  const cx = 170, cy = 170, R = 134, rad = el => R * (90 - el) / 90, frag = document.createDocumentFragment();
+  const add = (n, a, t) => frag.appendChild(svgEl(n, a, t));
+  for (const el of [60, 30, 0]) add("circle", { cx, cy, r: rad(el), fill: "none", stroke: el ? K.grid : K.axis, "stroke-width": 1 });
+  add("path", { d: `M${cx} ${cy - R}V${cy + R}M${cx - R} ${cy}H${cx + R}`, stroke: K.grid, "stroke-width": 1, fill: "none" });
+  if (mask > 0 && mask < 90) {
+    add("circle", { cx, cy, r: rad(mask), fill: "none", stroke: K.axis, "stroke-width": 1 });
+    add("text", { x: cx - rad(mask) * .7071 - 3, y: cy + rad(mask) * .7071 + 11, "text-anchor": "end", "font-size": 10, fill: K.muted }, `mask ${mask}°`);
+  }
+  for (const el of [60, 30]) add("text", { x: cx + rad(el) * .7071 + 3, y: cy - rad(el) * .7071 - 3, "font-size": 10, fill: K.muted }, el + "°");
+  [["N", cx, cy - R - 8], ["E", cx + R + 11, cy + 4], ["S", cx, cy + R + 17], ["W", cx - R - 11, cy + 4]].forEach(([t, x, y]) =>
+    add("text", { x, y, "text-anchor": "middle", "font-size": 11, "font-weight": 600, fill: K.muted }, t));
+  const P = list.map(s => { const r = rad(s.el), a = s.az * D2R; return [cx + r * Math.sin(a), cy - r * Math.cos(a)]; });
+  const boxes = P.map(([x, y]) => [x - 7, y - 7, x + 7, y + 7]);
+  for (const el of [60, 30]) { const x = cx + rad(el) * .7071 + 3, y = cy - rad(el) * .7071 - 3; boxes.push([x - 2, y - 10, x + 20, y + 3]); }   // keep the ring labels clear
+  if (mask > 0 && mask < 90) { const x = cx - rad(mask) * .7071 - 3, y = cy + rad(mask) * .7071 + 11; boxes.push([x - 46, y - 10, x + 2, y + 3]); }
+  const hits = b => boxes.some(o => b[0] < o[2] && b[2] > o[0] && b[1] < o[3] && b[3] > o[1]) || b[0] < 2 || b[2] > 338 || b[1] < 2 || b[3] > 338;
+  list.forEach((s, i) => {
+    const [x, y] = P[i];
+    if (s.used) add("circle", { cx: x, cy: y, r: 5, fill: K.series, stroke: K.surface, "stroke-width": 2 });
+    else add("circle", { cx: x, cy: y, r: 4.25, fill: K.surface, stroke: K.muted, "stroke-width": 1.5 });
+    const tw = s.id.length * 6.4;              // label the mark where a free spot exists; the tooltip and table carry the rest
+    for (const [lx, ly, anchor, b] of [
+      [x + 9, y + 3.5, "start", [x + 8, y - 6, x + 9 + tw, y + 6]], [x - 9, y + 3.5, "end", [x - 9 - tw, y - 6, x - 8, y + 6]],
+      [x, y - 9, "middle", [x - tw / 2, y - 20, x + tw / 2, y - 8]], [x, y + 17, "middle", [x - tw / 2, y + 8, x + tw / 2, y + 20]]]) {
+      if (hits(b)) continue;
+      boxes.push(b); add("text", { x: lx, y: ly, "text-anchor": anchor, "font-size": 10.5, fill: K.ink }, s.id); break;
+    }
+  });
+  list.forEach((s, i) => add("circle", { cx: P[i][0], cy: P[i][1], r: 12, fill: "transparent", "data-sat": i, tabindex: 0, role: "img",
+    "aria-label": `${s.id}, elevation ${s.el} degrees, azimuth ${s.az} degrees, ${s.used ? "used in the solution" : "not used"}` }));
+  svg.replaceChildren(frag);
+}
+function tip(x, y, title, rows, foot) {      // values lead, labels follow; text is inserted with textContent only
+  const t = $("tip"); t.replaceChildren();
+  const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  t.appendChild(mk("div", "tt", title));
+  for (const [label, value, key] of rows) {
+    const r = mk("div", "row"); if (key) r.appendChild(mk("span", "key"));
+    r.appendChild(mk("b", "", value)); r.appendChild(mk("span", "lab", label)); t.appendChild(r);
+  }
+  if (foot) t.appendChild(mk("div", "ft", foot));
+  t.style.display = "block";
+  const w = t.offsetWidth, h = t.offsetHeight;
+  t.style.left = Math.max(8, x + 14 + w > innerWidth ? x - w - 14 : x + 14) + "px";
+  t.style.top = Math.max(8, y + 14 + h > innerHeight ? y - h - 14 : y + 14) + "px";
+}
+const hideTip = () => { $("tip").style.display = "none"; };
+function tipPoint(i, x, y) {
+  const W = T.win, p = W.pts[i];
+  tip(x, y, hms(p[0]) + " GPST", [["m east", signed(W.e[i], 3), 1], ["m north", signed(W.nn[i], 3), 1], ["m up", signed(W.u[i], 3), 1]],
+      `${p[4]} · ${p[5]} satellites`);
+}
+function tipSat(i, x, y) {
+  const s = T.sky[i]; if (!s) return;
+  tip(x, y, `${s.id} · ${SYS[s.id[0]] || "SBAS"}`, [["elevation", s.el.toFixed(1) + "°"], ["azimuth", s.az.toFixed(1) + "°"]], s.used ? "Used in the solution" : "Tracked, not used");
+}
+function selectAt(cv, e) {       // nearest solution to the pointer: by distance on the track, by time on the series
+  const W = T.win; if (!W) return -1;
+  const b = cv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  if (cv.id === "cvTrack" && T.geo.track) {
+    let best = -1, bd = 24 * 24;
+    for (let i = 0; i < W.n; i++) { const [px, py] = T.geo.track(i), d = (px - x) * (px - x) + (py - y) * (py - y); if (d <= bd) { bd = d; best = i; } }
+    return best;
+  }
+  if (cv.id === "cvSeries" && T.geo.series) {
+    const g = T.geo.series, t = g.t0 + (x - g.L) / g.pw * (g.t1 - g.t0);
+    if (x < g.L - 12 || x > g.L + g.pw + 12) return -1;
+    let best = 0; for (let i = 1; i < W.n; i++) if (Math.abs(W.pts[i][0] - t) < Math.abs(W.pts[best][0] - t)) best = i;
+    return best;
+  }
+  return -1;
+}
+function setSel(i, x, y) {
+  const W = T.win, t = W && i >= 0 ? W.pts[i][0] : null, changed = t !== T.sel;
+  T.sel = t;
+  if (changed) redrawHistory();
+  if (i >= 0) tipPoint(i, x, y); else hideTip();
+}
+function redrawHistory() {
+  const K = chartColors();
+  drawTrack(T.win, K); drawSeries(T.win, K);
+}
+const chartColors = () => ({ series: cssv("--series-1"), grid: cssv("--grid"), axis: cssv("--axis"), ink: cssv("--ink"), muted: cssv("--muted"), surface: cssv("--surface") });
+function drawCharts() {
+  if (!$("cvTrack") && !$("sky")) return;
+  const K = chartColors(), W = T.win = windowed();
+  drawTrack(W, K); drawSeries(W, K); drawSky(K);
+  const sub = $("histSub");
+  if (sub) sub.textContent = W ? `${W.n} solution${W.n === 1 ? "" : "s"} · ${hms(W.pts[0][0])}–${hms(W.pts[W.n - 1][0])} GPST · mean ${W.ref[0].toFixed(7)}°, ${W.ref[1].toFixed(7)}°, ${W.ref[2].toFixed(2)} m` : "";
+  const tb = $("histTable");
+  if (tb && S.open.hist) {
+    let h = `<table><thead><tr><th>Time (GPST)</th><th class="n">Latitude</th><th class="n">Longitude</th><th class="n">Height</th><th class="n">East</th><th class="n">North</th><th class="n">Up</th><th>Status</th><th class="n">Satellites</th></tr></thead><tbody>`;
+    if (W) for (let i = W.n - 1; i >= Math.max(0, W.n - 30); i--) { const p = W.pts[i];
+      h += `<tr><td class="mono">${hms(p[0])}</td><td class="n">${p[1].toFixed(8)}°</td><td class="n">${p[2].toFixed(8)}°</td><td class="n">${p[3].toFixed(3)} m</td><td class="n">${signed(W.e[i], 3)} m</td><td class="n">${signed(W.nn[i], 3)} m</td><td class="n">${signed(W.u[i], 3)} m</td><td>${esc(p[4])}</td><td class="n">${p[5]}</td></tr>`; }
+    tb.innerHTML = h + `</tbody></table>`;
+  }
 }
 
 /* ---------- events ---------- */
@@ -448,11 +723,48 @@ $("main").addEventListener("change", e => {
 });
 $("main").addEventListener("click", e => {
   const t = e.target;
-  if (t.dataset.reset) { delete S.edits[t.dataset.reset]; afterEdit(t.dataset.reset, true); }
+  if (t.dataset.range !== undefined) { T.range = +t.dataset.range; T.sel = null; hideTip(); renderMonitor(); }
+  else if (t.dataset.reset) { delete S.edits[t.dataset.reset]; afterEdit(t.dataset.reset, true); }
   else if (t.dataset.act) act(t.dataset.act);
   else if (t.dataset.kill) act("stop-other", { pid: +t.dataset.kill });
 });
-$("main").addEventListener("toggle", e => { if (e.target.dataset && e.target.dataset.d) S.open[e.target.dataset.d] = e.target.open; }, true);
+$("main").addEventListener("toggle", e => { if (e.target.dataset && e.target.dataset.d) { S.open[e.target.dataset.d] = e.target.open; if (e.target.dataset.d === "hist") drawCharts(); } }, true);
+/* graphs: hover and keyboard give the same readout */
+$("main").addEventListener("pointermove", e => {
+  const t = e.target;
+  if (t.matches && t.matches("canvas.chart")) setSel(selectAt(t, e), e.clientX, e.clientY);
+  else if (t.dataset && t.dataset.sat !== undefined) tipSat(+t.dataset.sat, e.clientX, e.clientY);
+});
+$("main").addEventListener("pointerleave", e => {
+  const t = e.target;
+  if (t.matches && t.matches("canvas.chart")) setSel(-1); else if (t.dataset && t.dataset.sat !== undefined) hideTip();
+}, true);
+$("main").addEventListener("focus", e => {
+  const t = e.target;
+  if (t.dataset && t.dataset.sat !== undefined) { const b = t.getBoundingClientRect(); tipSat(+t.dataset.sat, b.right, b.top); }
+}, true);
+$("main").addEventListener("blur", e => {
+  const t = e.target;
+  if (t.matches && t.matches("canvas.chart")) setSel(-1); else if (t.dataset && t.dataset.sat !== undefined) hideTip();
+}, true);
+$("main").addEventListener("keydown", e => {
+  const t = e.target, W = T.win;
+  if (!t.matches || !t.matches("canvas.chart") || !W) return;
+  let i = selIndex(W);
+  if (e.key === "ArrowLeft") i = i < 0 ? W.n - 1 : Math.max(0, i - 1);
+  else if (e.key === "ArrowRight") i = i < 0 ? W.n - 1 : Math.min(W.n - 1, i + 1);
+  else if (e.key === "Home") i = 0;
+  else if (e.key === "End") i = W.n - 1;
+  else if (e.key === "Escape") i = -1;
+  else return;
+  e.preventDefault();
+  const b = t.getBoundingClientRect();
+  let x = b.left + b.width / 2, y = b.top + 24;
+  if (i >= 0 && t.id === "cvTrack" && T.geo.track) { const q = T.geo.track(i); x = b.left + q[0]; y = b.top + q[1]; }
+  else if (i >= 0 && T.geo.series) x = b.left + T.geo.series.X(W.pts[i][0]);
+  setSel(i, x, y);
+});
+window.addEventListener("resize", () => { if (!S.q && S.view === "monitor") drawCharts(); });
 $("bStart").onclick = () => act("start");
 $("bStop").onclick = () => act("stop");
 $("bRestart").onclick = () => act("restart");

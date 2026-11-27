@@ -15,3 +15,9 @@ cd app/consapp/rtkrcv/gcc && make
 cp ../../../../.env.example ../../../../.env   # .env in the repository root: put your caster login in it
 ./rtkrcv -s -o ../conf/single.conf
 ```
+
+Or run it from the browser, with graphs of the position and the satellites:
+
+```bash
+cd app/consapp/rtkrcv/ui && python3 server.py   # opens http://127.0.0.1:8765/, then click Start
+```
