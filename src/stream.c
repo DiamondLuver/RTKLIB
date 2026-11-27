@@ -341,6 +341,16 @@ static DWORD WINAPI serialthread(void *arg)
 }
 #endif /* WIN32 */
 
+/* baudrates not defined in termios.h on some platforms (e.g. macOS), where
+*  speed_t is the plain numeric baudrate */
+#ifndef WIN32
+#ifndef B460800
+#define B460800 460800
+#endif
+#ifndef B921600
+#define B921600 921600
+#endif
+#endif
 /* open serial ---------------------------------------------------------------*/
 static serial_t *openserial(const char *path, int mode, char *msg)
 {

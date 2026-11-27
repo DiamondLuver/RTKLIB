@@ -1,0 +1,7 @@
+# build and run output of rtkrcv
+gcc/rtkrcv
+gcc/rtkrcv.nav
+gcc/output/
+gcc/*.trace
+gcc/*.stat
+ui/__pycache__/

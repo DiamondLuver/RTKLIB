@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rtkrcv</title>
+<style>
+:root {
+  --bg: #f4f5f7; --surface: #ffffff; --sunken: #f0f2f5; --ink: #1a2330; --muted: #657084;
+  --line: #e1e5ea; --accent: #0b7a70; --accent-ink: #ffffff; --accent-soft: #e2f3f0;
+  --ok: #1a8a4c; --warn: #a15c00; --warn-soft: #fdf1dc; --bad: #c0362c; --bad-soft: #fde9e6;
+  --changed: #fff6d9; --changed-line: #e2b93b;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e1217; --surface: #161b22; --sunken: #1c222b; --ink: #e5e9ef; --muted: #93a0b2;
+    --line: #272f3a; --accent: #35c9b6; --accent-ink: #06201c; --accent-soft: #12332f;
+    --ok: #4fce85; --warn: #f0b354; --warn-soft: #33270f; --bad: #ff7b6e; --bad-soft: #3a1b18;
+    --changed: #332b10; --changed-line: #b08d1f;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+button, input, select { font: inherit; color: inherit; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+
+header {
+  position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.brand { font-weight: 700; font-size: 16px; letter-spacing: -.01em; }
+.conf { min-width: 0; flex: 1 1 200px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conf b { color: var(--ink); font-weight: 600; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 4px 10px; border-radius: 999px;
+  background: var(--sunken); color: var(--muted); font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+.pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.pill.run { background: var(--accent-soft); color: var(--accent); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.btn { border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 7px; cursor: pointer; font-weight: 600; white-space: nowrap; }
+.btn:hover { border-color: var(--muted); }
+.btn:disabled { opacity: .45; cursor: default; border-color: var(--line); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.danger { color: var(--bad); }
+.btn.small { padding: 3px 9px; font-size: 12.5px; }
+.btn:focus-visible, input:focus-visible, select:focus-visible, .nav button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.layout { display: grid; grid-template-columns: 216px minmax(0, 1fr); gap: 20px; max-width: 1240px; margin: 0 auto; padding: 18px 16px 96px; }
+.nav { position: sticky; top: 66px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
+.nav input { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); margin-bottom: 8px; }
+.nav .label { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); padding: 12px 10px 4px; }
+.nav button { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; text-align: left;
+  border: 0; background: none; padding: 7px 10px; border-radius: 7px; cursor: pointer; }
+.nav button:hover { background: var(--sunken); }
+.nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.badge { background: var(--changed-line); color: #1a1400; border-radius: 999px; font-size: 11px; font-weight: 700; padding: 0 7px; }
+
+h2 { font-size: 18px; margin: 0 0 4px; letter-spacing: -.01em; }
+h3 { font-size: 13px; margin: 0; }
+.sub { color: var(--muted); margin: 0 0 16px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; overflow: hidden; }
+.panel > .head { display: flex; align-items: baseline; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.panel > .head span { color: var(--muted); font-size: 12.5px; }
+.panel.off > .head { border-bottom: 0; }
+.panel.off .field:not(.type) { display: none; }
+.panel.off .field.type { border-top: 1px solid var(--line); }
+
+.field { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 4px 16px; padding: 9px 14px; border-top: 1px solid var(--line); align-items: start; }
+.panel > .field:first-child, .head + .field { border-top: 0; }
+.field .k { font-family: var(--mono); font-size: 12.5px; padding-top: 6px; overflow-wrap: anywhere; }
+.field .k small { display: block; color: var(--muted); font-family: var(--sans); font-size: 11px; }
+.field.changed { background: var(--changed); box-shadow: inset 3px 0 0 var(--changed-line); }
+.ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctl input[type=text], .ctl select { width: 100%; max-width: 520px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); font-family: var(--mono); font-size: 12.5px; }
+.ctl select { max-width: 260px; }
+.ctl .unit { color: var(--muted); font-size: 12.5px; }
+.ctl.withunit input[type=text] { max-width: 260px; }
+.flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.flags label { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 7px; padding: 4px 9px; cursor: pointer; font-family: var(--mono); font-size: 12.5px; background: var(--surface); }
+.flags label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.meta { grid-column: 2; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.meta:empty { display: none; }
+.warnt { color: var(--bad); font-weight: 600; }
+.meta a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.card .t { color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; }
+.card .v { font-size: 20px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.card .v.mono { font-family: var(--mono); font-size: 17px; font-weight: 600; }
+.card .s { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.v.ok { color: var(--ok); } .v.warn { color: var(--warn); } .v.dim { color: var(--muted); }
+
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { text-align: left; padding: 6px 12px; border-top: 1px solid var(--line); white-space: nowrap; }
+thead th { border-top: 0; color: var(--muted); font-weight: 600; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; }
+td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+td.mono { font-family: var(--mono); }
+td.wrap { white-space: normal; overflow-wrap: break-word; }
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 6px; }
+.dot.C { background: var(--ok); } .dot.E { background: var(--bad); }
+.okc { color: var(--ok); font-weight: 600; }
+
+.note { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; background: var(--surface); }
+.note.warn { background: var(--warn-soft); border-color: transparent; }
+.note.bad { background: var(--bad-soft); border-color: transparent; }
+.note h3 { margin-bottom: 4px; }
+.note .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; flex-wrap: wrap; }
+.note pre { margin: 8px 0 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.empty { text-align: center; padding: 44px 16px; color: var(--muted); }
+.empty h2 { color: var(--ink); }
+.empty .btn { margin-top: 14px; }
+details > summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 13px; }
+
+.savebar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: none; justify-content: center; padding: 12px 16px; pointer-events: none; }
+.savebar.show { display: flex; }
+.savebar > div { pointer-events: auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--surface);
+  border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; box-shadow: 0 8px 28px rgba(0,0,0,.18); max-width: 100%; }
+.savebar .msg { font-weight: 600; margin-right: 6px; }
+.toast { position: fixed; top: 64px; right: 16px; z-index: 9; max-width: min(420px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 9px;
+  background: var(--ink); color: var(--bg); box-shadow: 0 8px 28px rgba(0,0,0,.25); display: none; overflow-wrap: anywhere; }
+.toast.show { display: block; }
+.toast.bad { background: var(--bad); color: #fff; }
+
+@media (max-width: 800px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .conf { order: 9; flex-basis: 100%; }
+  .nav { position: static; flex-direction: row; flex-wrap: nowrap; overflow-x: auto; gap: 4px; padding-bottom: 4px; }
+  .nav input { flex: 0 0 150px; margin: 0; }
+  .nav .label { display: none; }
+  .nav button { width: auto; white-space: nowrap; flex: 0 0 auto; }
+  .field { grid-template-columns: minmax(0, 1fr); }
+  .field .k { padding-top: 0; }
+  .meta { grid-column: 1; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">rtkrcv</div>
+  <div class="conf" id="conf"></div>
+  <span class="pill" id="pill">…</span>
+  <button class="btn primary" id="bStart">Start</button>
+  <button class="btn" id="bRestart">Restart</button>
+  <button class="btn danger" id="bStop">Stop</button>
+</header>
+<div class="layout">
+  <nav class="nav" id="nav"></nav>
+  <main id="main"></main>
+</div>
+<div class="savebar" id="savebar"><div>
+  <span class="msg" id="saveMsg"></span>
+  <button class="btn" id="bDiscard">Discard</button>
+  <button class="btn primary" id="bSave">Save</button>
+  <button class="btn" id="bSaveRestart">Save and restart</button>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+const PATH_HELP = {
+  serial: "port[:bit_rate[:byte[:parity(n|o|e)[:stopb[:fctr(off|on)]]]]]",
+  file: "path — keywords %Y %m %d %h %M %S are replaced by the time; add ::S=hours to swap files",
+  tcpsvr: ":port",
+  tcpcli: "addr:port",
+  ntripcli: "user:passwd@addr:port/mntpnt",
+  ntripsvr: "user:passwd@addr:port/mntpnt[:str]",
+  ftp: "user:passwd@addr/path",
+  http: "addr/path",
+};
+
+const S = { conf: null, fields: {}, orig: {}, edits: {}, view: "monitor", q: "", run: null, busy: false,
+            diskChanged: false, open: {}, html: {} };
+
+async function api(path, body) {
+  const opt = { headers: { "X-Token": TOKEN } };
+  if (body !== undefined) { opt.method = "POST"; opt.body = JSON.stringify(body); opt.headers["Content-Type"] = "application/json"; }
+  const r = await fetch(path, opt);
+  const j = await r.json().catch(() => ({ error: "bad response" }));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+let toastTimer;
+function toast(msg, bad) {
+  const t = $("toast"); t.textContent = msg; t.className = "toast show" + (bad ? " bad" : "");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = "toast", bad ? 7000 : 2600);
+}
+
+/* ---------- configuration ---------- */
+function norm(f, v) {            // enum values as rtkrcv reads them, e.g. "1" -> "on"
+  return f.kind === "enum" && f.canon ? f.canon : v;
+}
+function setConf(conf) {
+  S.conf = conf; S.fields = {}; S.orig = {};
+  for (const g of conf.groups) for (const f of g.fields) { S.fields[f.key] = f; S.orig[f.key] = norm(f, f.value); }
+  for (const k of Object.keys(S.edits)) if (!(k in S.orig) || S.edits[k] === S.orig[k]) delete S.edits[k];
+  S.diskChanged = false;
+  const i = conf.path.lastIndexOf("/");
+  $("conf").innerHTML = esc(conf.path.slice(0, i + 1)) + "<b>" + esc(conf.path.slice(i + 1)) + "</b>";
+  $("conf").title = conf.path;
+}
+const val = k => (k in S.edits ? S.edits[k] : S.orig[k]);
+function setVal(k, v) { if (v === S.orig[k]) delete S.edits[k]; else S.edits[k] = v; }
+const nEdits = () => Object.keys(S.edits).length;
+
+function control(f) {
+  const v = val(f.key), id = "f-" + f.key;
+  if (f.kind === "enum") {
+    const names = f.choices.map(c => c.name);
+    const opts = (names.includes(v) ? names : [v, ...names]).map(n => `<option${n === v ? " selected" : ""}>${esc(n)}</option>`).join("");
+    return `<div class="ctl"><select id="${id}" data-key="${esc(f.key)}">${opts}</select></div>`;
+  }
+  if (f.kind === "flags") {
+    const num = parseInt(v, 10) || 0;
+    return `<div class="ctl"><div class="flags" data-flags="${esc(f.key)}">` + f.choices.filter(c => c.num > 0).map(c =>
+      `<label><input type="checkbox" value="${c.num}"${num & c.num ? " checked" : ""}>${esc(c.name)}</label>`).join("") + `</div></div>`;
+  }
+  return `<div class="ctl${f.unit ? " withunit" : ""}"><input type="text" id="${id}" data-key="${esc(f.key)}" value="${esc(v)}" spellcheck="false" autocomplete="off">` +
+    (f.unit ? `<span class="unit">${esc(f.unit)}</span>` : "") + `</div>`;
+}
+function metaHtml(f) {
+  const bits = [];
+  if (f.key.endsWith("-path") && f.stream) {
+    const h = PATH_HELP[val(f.stream + "-type")]; if (h) bits.push("Format: " + esc(h));
+  }
+  if (!f.known) bits.push(`<span class="warnt">Not an option of this rtkrcv build — it is ignored</span>`);
+  if (f.kind === "enum" && !f.choices.some(c => c.name === val(f.key)))
+    bits.push(`<span class="warnt">Not a valid choice — rtkrcv ignores this line and keeps its default</span>`);
+  if (f.note) bits.push(esc(f.note));
+  if (f.kind === "flags") bits.push("value " + esc(val(f.key)));
+  if (f.key in S.edits) bits.push(`was <code>${esc(S.orig[f.key] === "" ? "(empty)" : S.orig[f.key])}</code> · <a data-reset="${esc(f.key)}">reset</a>`);
+  return bits.join(" · ");
+}
+function fieldHtml(f) {
+  const suffix = f.key.split("-").slice(1).join("-");
+  return `<div class="field${f.key in S.edits ? " changed" : ""}${f.stream && suffix === "type" ? " type" : ""}" data-field="${esc(f.key)}">
+    <label class="k" for="f-${esc(f.key)}">${esc(f.key)}<small>line ${f.line}</small></label>${control(f)}<div class="meta">${metaHtml(f)}</div></div>`;
+}
+function groupHtml(g, fields) {
+  if (!["inpstr", "outstr", "logstr"].includes(g.id)) return `<div class="panel">${fields.map(fieldHtml).join("")}</div>`;
+  const by = {};
+  for (const f of fields) (by[f.stream] = by[f.stream] || []).push(f);
+  return Object.keys(by).map(s => {
+    const off = val(s + "-type") === "off" && by[s].some(f => f.key === s + "-type");
+    return `<div class="panel${off ? " off" : ""}" data-stream="${s}"><div class="head"><h3>${esc(S.conf.streams[s] || s)}</h3><span>${s}${off ? " · off" : ""}</span></div>${by[s].map(fieldHtml).join("")}</div>`;
+  }).join("");
+}
+function renderConfig() {
+  const q = S.q.trim().toLowerCase();
+  let html = "";
+  if (q) {
+    const hit = f => (f.key + " " + val(f.key) + " " + f.note + " " + f.unit + " " + f.choices.map(c => c.name).join(" ")).toLowerCase().includes(q);
+    let n = 0;
+    for (const g of S.conf.groups) {
+      const fs = g.fields.filter(hit); if (!fs.length) continue;
+      n += fs.length; html += `<p class="sub" style="margin:0 0 6px"><b>${esc(g.title)}</b></p>` + groupHtml(g, fs);
+    }
+    html = `<h2>Search</h2><p class="sub">${n} option${n === 1 ? "" : "s"} matching “${esc(S.q.trim())}”</p>` + (html || `<div class="note">Nothing matches.</div>`);
+  } else {
+    const g = S.conf.groups.find(g => g.id === S.view) || S.conf.groups[0];
+    html = `<h2>${esc(g.title)}</h2><p class="sub">${g.fields.length} options · saved straight to the options file</p>` + groupHtml(g, g.fields);
+  }
+  $("main").innerHTML = html;
+}
+function refreshField(key) {
+  const el = document.querySelector(`[data-field="${CSS.escape(key)}"]`); if (!el) return;
+  const f = S.fields[key];
+  el.classList.toggle("changed", key in S.edits);
+  el.querySelector(".meta").innerHTML = metaHtml(f);
+}
+function afterEdit(key, rerender) {
+  const f = S.fields[key];
+  if (rerender || (f.stream && key.endsWith("-type"))) renderConfig(); else refreshField(key);
+  renderNav(); renderSaveBar();
+}
+
+/* ---------- navigation and save bar ---------- */
+function renderNav() {
+  const counts = {};
+  if (S.conf) for (const g of S.conf.groups) counts[g.id] = g.fields.filter(f => f.key in S.edits).length;
+  let h = `<input id="q" type="search" placeholder="Search options" value="${esc(S.q)}" aria-label="Search options">`;
+  h += `<button data-view="monitor" class="${!S.q && S.view === "monitor" ? "on" : ""}">Monitor</button><div class="label">Configuration</div>`;
+  if (S.conf) for (const g of S.conf.groups)
+    h += `<button data-view="${g.id}" class="${!S.q && S.view === g.id ? "on" : ""}"><span>${esc(g.title)}</span>${counts[g.id] ? `<span class="badge">${counts[g.id]}</span>` : ""}</button>`;
+  const nav = $("nav"), had = document.activeElement && document.activeElement.id === "q", pos = had ? document.activeElement.selectionStart : 0;
+  nav.innerHTML = h;
+  if (had) { const q = $("q"); q.focus(); q.setSelectionRange(pos, pos); }
+}
+function renderSaveBar() {
+  const n = nEdits();
+  $("savebar").classList.toggle("show", n > 0 || S.diskChanged);
+  $("saveMsg").textContent = S.diskChanged && n ? `${n} unsaved change${n === 1 ? "" : "s"} · file also changed on disk`
+    : S.diskChanged ? "The options file changed on disk" : `${n} unsaved change${n === 1 ? "" : "s"}`;
+  $("bSave").style.display = n ? "" : "none";
+  $("bSaveRestart").style.display = n && S.run && S.run.running ? "" : "none";
+  $("bDiscard").textContent = S.diskChanged ? "Reload from disk" : "Discard";
+}
+function show() { S.html = {}; if (S.q || S.view !== "monitor") renderConfig(); else renderMonitor(true); renderNav(); renderSaveBar(); }
+
+async function loadConf() { setConf(await api("/api/config")); }
+async function save(restart) {
+  if (!nEdits() || S.busy) return;
+  S.busy = true;
+  try {
+    const n = nEdits();
+    setConf(await api("/api/config", { values: S.edits }));
+    S.edits = {};
+    if (restart) { S.run = await api("/api/restart", {}); toast(`Saved ${n} change${n === 1 ? "" : "s"} and restarted rtkrcv`); }
+    else toast(`Saved ${n} change${n === 1 ? "" : "s"}` + (S.run && S.run.running ? " — restart rtkrcv to apply" : ""));
+  } catch (e) { toast(e.message, true); }
+  S.busy = false; show(); renderHeader();
+}
+
+/* ---------- monitor ---------- */
+function ecef2llh(x, y, z) {
+  const a = 6378137, f = 1 / 298.257223563, e2 = f * (2 - f), r2 = x * x + y * y;
+  let zz = z, zk = 0, v = a;
+  for (let i = 0; i < 20 && Math.abs(zz - zk) >= 1e-4; i++) { zk = zz; const s = zz / Math.sqrt(r2 + zz * zz); v = a / Math.sqrt(1 - e2 * s * s); zz = z + v * e2 * s; }
+  return [Math.atan2(zz, Math.sqrt(r2)) * 180 / Math.PI, Math.atan2(y, x) * 180 / Math.PI, Math.sqrt(r2 + zz * zz) - v];
+}
+const nums = s => (s || "").split(/[ ,]+/).filter(Boolean).map(Number);
+function position(st) {
+  const sol = st["solution status"] || "-";
+  const pick = k => { const p = nums(st[k]); return p.length === 3 && p.some(v => v !== 0) ? ecef2llh(p[0], p[1], p[2]) : null; };
+  let p = null, src = "";
+  if (sol === "fix") { p = pick("pos xyz fixed (m) rover"); src = "fixed solution"; }
+  else if (["float", "PPP", "DGPS"].includes(sol)) { p = pick("pos xyz float (m) rover"); src = sol + " solution"; }
+  if (!p) { const s = nums(st["pos llh single (deg,m) rover"]); if (s.length === 3 && s.some(v => v !== 0)) { p = s; src = "single-point solution"; } }
+  return { p, src };
+}
+function bytes(n) { return n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB" : (n / 1048576).toFixed(2) + " MB"; }
+function dur(s) { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return (h ? h + "h " : "") + (h || m ? m + "m " : "") + (s % 60) + "s"; }
+function maskPath(r) {          // hide the password of user:passwd@addr paths (the console cuts them at 24 chars)
+  if (!/^(ntrip|ftp)/.test(r.type)) return r.path;
+  const at = r.path.lastIndexOf("@"), colon = r.path.indexOf(":");
+  if (at < 0 || colon < 0) return r.path;
+  return r.path.slice(0, colon + 1) + "•••" + (colon < at ? r.path.slice(at) : "");
+}
+const card = (t, v, s, cls) => `<div class="card"><div class="t">${t}</div><div class="v ${cls || ""}">${v}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
+
+function monitorParts() {
+  const r = S.run, parts = {};
+  if (!r) { parts.body = `<div class="empty">Connecting…</div>`; return parts; }
+  if (r.others.length) parts.others = `<div class="note warn"><h3>Another rtkrcv is running outside this page</h3>
+    It can hold the caster login and the output ports, so a second copy may get no data.` +
+    r.others.map(o => `<div class="row"><code>pid ${o.pid} · ${esc(o.command)}</code><button class="btn small danger" data-kill="${o.pid}">Stop it</button></div>`).join("") + `</div>`;
+  if (r.stale) parts.stale = `<div class="note warn"><div class="row" style="margin:0"><span><b>The options file changed after rtkrcv started.</b> Restart to apply it.</span><button class="btn small" data-act="restart">Restart</button></div></div>`;
+  if (r.error) parts.error = `<div class="note bad">${esc(r.error)}</div>`;
+  if (!r.running) {
+    const x = r.last_exit;
+    if (x && !x.expected) parts.exit = `<div class="note bad"><h3>rtkrcv stopped unexpectedly (${esc(x.reason)})</h3>${x.log ? `<pre>${esc(x.log)}</pre>` : ""}</div>`;
+    parts.body = r.built
+      ? `<div class="panel"><div class="empty"><h2>rtkrcv is not running</h2>Start it with the current options file to see the solution here.<br><button class="btn primary" data-act="start">Start rtkrcv</button></div></div>`
+      : `<div class="note bad"><h3>rtkrcv is not built</h3>Run <code>make</code> in <code>app/consapp/rtkrcv/gcc</code>, then reload.</div>`;
+    return parts;
+  }
+  if (!r.live) { parts.body = `<div class="panel"><div class="empty">Starting rtkrcv…</div></div>`; return parts; }
+  const st = r.live.status, sol = st["solution status"] || "-", { p, src } = position(st);
+  const solCls = sol === "fix" ? "ok" : sol === "-" ? "dim" : sol === "single" ? "" : "warn";
+  const dop = nums(st["GDOP/PDOP/HDOP/VDOP"]), hasDop = dop.length === 4 && dop[1] > 0;
+  const tm = st["time of receiver clock rover"] || "-", hasT = tm.length > 20;
+  parts.cards = `<div class="cards">` +
+    card("Solution", sol === "-" ? "none yet" : esc(sol), esc((st["positioning mode"] || "") + " · " + (st["frequencies"] || "")), solCls) +
+    card("Satellites", esc(st["# of valid satellites"] || "0") + ` <span style="font-size:13px;font-weight:500;color:var(--muted)">used</span>`, esc(st["# of satellites rover"] || "0") + " tracked by rover") +
+    card("Latitude", p ? p[0].toFixed(8) + "°" : "–", p ? esc(src) : "", "mono") +
+    card("Longitude", p ? p[1].toFixed(8) + "°" : "–", "", "mono") +
+    card("Height", p ? p[2].toFixed(3) + " m" : "–", p ? "ellipsoidal" : "", "mono") +
+    card("Receiver time", hasT ? esc(tm.slice(11, 21)) : "–", hasT ? esc(tm.slice(0, 10)) + " GPST" : "", "mono") +
+    card("PDOP", hasDop ? dop[1].toFixed(1) : "–", hasDop ? `G ${dop[0]} · H ${dop[2]} · V ${dop[3]}` : "") +
+    card("Age / ratio", esc(st["age of differential (s)"] || "–") + " s", "AR ratio " + esc(st["ratio for ar validation"] || "–")) + `</div>`;
+  const rows = r.live.streams.filter(s => s.type !== "-");
+  parts.streams = `<div class="panel"><div class="head"><h3>Streams</h3><span>${rows.length} active</span></div><div class="scroll"><table>
+    <thead><tr><th>Stream</th><th>Type</th><th>Format</th><th>State</th><th class="n">In</th><th class="n">In rate</th><th class="n">Out</th><th class="n">Out rate</th><th>Path</th><th>Message</th></tr></thead><tbody>` +
+    (rows.map(s => `<tr><td>${esc(s.name)}</td><td>${esc(s.type)}</td><td>${esc(s.fmt)}</td>
+      <td><span class="dot ${s.state}"></span>${s.state === "C" ? "connected" : s.state === "E" ? "error" : "idle"}</td>
+      <td class="n">${bytes(s.inb)}</td><td class="n">${s.inr.toLocaleString()} bps</td><td class="n">${bytes(s.outb)}</td><td class="n">${s.outr.toLocaleString()} bps</td>
+      <td class="mono">${esc(maskPath(s))}</td><td class="wrap">${esc(s.msg)}</td></tr>`).join("") || `<tr><td colspan="10">No active streams.</td></tr>`) + `</tbody></table></div></div>`;
+  const sat = r.live.sats;
+  parts.sats = `<details class="panel" data-d="sats"${S.open.sats === false ? "" : " open"}><summary>Satellites (${sat.rows.length})</summary><div class="scroll"><table>
+    <thead><tr>${sat.header.map((h, i) => `<th class="${i > 1 ? "n" : ""}">${esc(h)}</th>`).join("")}</tr></thead><tbody>` +
+    sat.rows.map(row => `<tr>${row.map((c, i) => `<td class="${i > 1 ? "n" : ""}${i === 0 ? " mono" : ""}${c === "OK" ? " okc" : ""}">${esc(c)}</td>`).join("")}</tr>`).join("") + `</tbody></table></div></details>`;
+  parts.all = `<details class="panel" data-d="all"${S.open.all ? " open" : ""}><summary>All status values</summary><div class="scroll"><table><tbody>` +
+    Object.keys(st).map(k => `<tr><td>${esc(k)}</td><td class="mono wrap">${esc(st[k])}</td></tr>`).join("") + `</tbody></table></div></details>`;
+  return parts;
+}
+const ORDER = ["others", "stale", "error", "exit", "cards", "streams", "sats", "all", "body"];
+function renderMonitor(full) {
+  const main = $("main");
+  if (full || !main.querySelector("[data-mon]")) {
+    main.innerHTML = `<h2>Monitor</h2><p class="sub" id="monSub"></p>` + ORDER.map(k => `<div data-mon="${k}"></div>`).join("");
+    S.html = {};
+  }
+  const parts = monitorParts();
+  for (const k of ORDER) { const h = parts[k] || ""; if (S.html[k] !== h) { main.querySelector(`[data-mon="${k}"]`).innerHTML = h; S.html[k] = h; } }
+  const r = S.run;
+  $("monSub").textContent = r && r.running ? `Running for ${dur(r.uptime)} · pid ${r.pid} · updates every second` : "Live solution, streams and satellites";
+}
+function renderHeader() {
+  const r = S.run, pill = $("pill");
+  const bad = r && !r.running && r.last_exit && !r.last_exit.expected;
+  pill.className = "pill" + (r && r.running ? " run" : bad ? " bad" : "");
+  pill.textContent = !r ? "…" : r.running ? "Running" : bad ? "Stopped unexpectedly" : "Stopped";
+  $("bStart").style.display = r && r.running ? "none" : "";
+  $("bRestart").style.display = $("bStop").style.display = r && r.running ? "" : "none";
+  for (const b of ["bStart", "bRestart", "bStop"]) $(b).disabled = S.busy || !r;
+}
+async function act(name, body) {
+  if (S.busy) return;
+  S.busy = true; renderHeader();
+  try { S.run = await api("/api/" + name, body || {}); } catch (e) { toast(e.message, true); }
+  S.busy = false; renderHeader(); renderSaveBar();
+  if (!S.q && S.view === "monitor") renderMonitor();
+}
+async function poll() {
+  try {
+    S.run = await api("/api/state");
+    if (S.conf && Math.abs(S.run.conf_mtime - S.conf.mtime) > 1e-6 && !S.busy) {
+      if (!nEdits()) { await loadConf(); if (S.q || S.view !== "monitor") show(); toast("Options file changed on disk — reloaded"); }
+      else if (!S.diskChanged) { S.diskChanged = true; renderSaveBar(); }
+    }
+  } catch (e) { S.run = null; }
+  renderHeader();
+  if (!S.q && S.view === "monitor") renderMonitor();
+  setTimeout(poll, 1000);
+}
+
+/* ---------- events ---------- */
+$("nav").addEventListener("click", e => { const b = e.target.closest("[data-view]"); if (!b) return; S.view = b.dataset.view; S.q = ""; history.replaceState(null, "", "#" + S.view); show(); window.scrollTo(0, 0); });
+$("nav").addEventListener("input", e => { if (e.target.id === "q") { S.q = e.target.value; show(); } });
+$("main").addEventListener("input", e => {
+  const t = e.target;
+  if (t.matches("input[type=text][data-key]")) { setVal(t.dataset.key, t.value.trim()); afterEdit(t.dataset.key); }
+});
+$("main").addEventListener("change", e => {
+  const t = e.target;
+  if (t.matches("select[data-key]")) { setVal(t.dataset.key, t.value); afterEdit(t.dataset.key); }
+  const fl = t.closest("[data-flags]");
+  if (fl) { let n = 0; fl.querySelectorAll("input:checked").forEach(c => n += +c.value); setVal(fl.dataset.flags, String(n)); afterEdit(fl.dataset.flags); }
+});
+$("main").addEventListener("click", e => {
+  const t = e.target;
+  if (t.dataset.reset) { delete S.edits[t.dataset.reset]; afterEdit(t.dataset.reset, true); }
+  else if (t.dataset.act) act(t.dataset.act);
+  else if (t.dataset.kill) act("stop-other", { pid: +t.dataset.kill });
+});
+$("main").addEventListener("toggle", e => { if (e.target.dataset && e.target.dataset.d) S.open[e.target.dataset.d] = e.target.open; }, true);
+$("bStart").onclick = () => act("start");
+$("bStop").onclick = () => act("stop");
+$("bRestart").onclick = () => act("restart");
+$("bSave").onclick = () => save(false);
+$("bSaveRestart").onclick = () => save(true);
+$("bDiscard").onclick = async () => { S.edits = {}; try { await loadConf(); } catch (e) { toast(e.message, true); } show(); };
+window.addEventListener("keydown", e => { if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(false); } });
+window.addEventListener("beforeunload", e => { if (nEdits()) { e.preventDefault(); e.returnValue = ""; } });
+
+(async () => {
+  try { await loadConf(); } catch (e) { toast(e.message, true); }
+  const h = location.hash.slice(1);
+  if (S.conf && S.conf.groups.some(g => g.id === h)) S.view = h;
+  show(); poll();
+})();
+</script>
+</body>
+</html>

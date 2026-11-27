@@ -557,6 +557,25 @@ static void send_nmea(rtksvr_t *svr, uint32_t *tickreset)
 			   sol_nmea.rr[2]);
 	}
 }
+/* create thread with large stack ----------------------------------------------
+* rtk server thread needs more stack than the default of secondary threads on
+* some platforms (e.g. 512KB on macOS), which causes a crash at thread start
+*-----------------------------------------------------------------------------*/
+#ifndef WIN32
+#define SVR_STACKSIZE (16*1024*1024)    /* rtk server thread stack size (bytes) */
+
+static int createthread(pthread_t *thread, void *(*func)(void *), void *arg)
+{
+    pthread_attr_t attr;
+    int stat;
+    
+    if (pthread_attr_init(&attr)) return pthread_create(thread,NULL,func,arg);
+    pthread_attr_setstacksize(&attr,SVR_STACKSIZE);
+    stat=pthread_create(thread,&attr,func,arg);
+    pthread_attr_destroy(&attr);
+    return stat;
+}
+#endif
 /* rtk server thread ---------------------------------------------------------*/
 #ifdef WIN32
 static DWORD WINAPI rtksvrthread(void *arg)
@@ -946,7 +965,7 @@ extern int rtksvrstart(rtksvr_t *svr, int cycle, int buffsize, int *strs,
 #ifdef WIN32
     if (!(svr->thread=CreateThread(NULL,0,rtksvrthread,svr,0,NULL))) {
 #else
-    if (pthread_create(&svr->thread,NULL,rtksvrthread,svr)) {
+    if (createthread(&svr->thread,rtksvrthread,svr)) {
 #endif
         for (i=0;i<MAXSTRRTK;i++) strclose(svr->stream+i);
         sprintf(errmsg,"thread create error\n");

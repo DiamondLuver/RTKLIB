@@ -178,8 +178,10 @@ static const char *pathopts[]={         /* path options help */
 #define TIMOPT  "0:gpst,1:utc,2:jst,3:tow"
 #define CONOPT  "0:dms,1:deg,2:xyz,3:enu,4:pyl"
 #define FLGOPT  "0:off,1:std+2:age/ratio/ns"
-#define ISTOPT  "0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,7:ntripcli,8:ftp,9:http"
-#define OSTOPT  "0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,6:ntripsvr,11:ntripc_c"
+#define CON_STACKSIZE (16*1024*1024)    /* console thread stack size (bytes) */
+
+#define ISTOPT  "0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,6:ntripcli,7:ftp,8:http"
+#define OSTOPT  "0:off,1:serial,2:file,3:tcpsvr,4:tcpcli,5:ntripsvr,9:ntripcas"
 #define FMTOPT  "0:rtcm2,1:rtcm3,2:oem4,3:oem3,4:ubx,5:ss2,6:hemis,7:skytraq,8:gw10,9:javad,10:nvs,11:binex,12:rt17,13:sbf,14:cmr,15:tersus,18:sp3"
 #define NMEOPT  "0:off,1:latlon,2:single"
 #define SOLOPT  "0:llh,1:xyz,2:enu,3:nmea,4:stat"
@@ -306,7 +308,7 @@ static int confwrite(vt_t *vt, const char *file)
     
     strcpy(buff,file);
     if ((p=strstr(buff,"::"))) *p='\0'; /* omit options in path */
-    if (!vt->state||!(fp=fopen(buff,"r"))) return 1; /* no existing file */
+    if (!vt||!vt->state||!(fp=fopen(buff,"r"))) return 1; /* no console (-s) or no existing file */
     fclose(fp);
     vt_printf(vt,"overwrite %-16s ? (y/n): ",buff);
     if (!vt_gets(vt,buff,sizeof(buff))||vt->brk) return 0;
@@ -1412,6 +1414,8 @@ static void *con_thread(void *arg)
 /* open console --------------------------------------------------------------*/
 static con_t *con_open(int sock, const char *dev)
 {
+    pthread_attr_t attr;
+    int stat;
     con_t *con;
     
     trace(3,"con_open: sock=%d dev=%s\n",sock,dev);
@@ -1424,7 +1428,14 @@ static con_t *con_open(int sock, const char *dev)
     }
     /* start console thread */
     con->state=1;
-    if (pthread_create(&con->thread,NULL,con_thread,con)) {
+    
+    /* console commands (e.g. status) need more stack than the default of
+       secondary threads on some platforms (e.g. 512KB on macOS) */
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr,CON_STACKSIZE);
+    stat=pthread_create(&con->thread,&attr,con_thread,con);
+    pthread_attr_destroy(&attr);
+    if (stat) {
         free(con);
         return NULL;
     }
