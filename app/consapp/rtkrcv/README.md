@@ -31,29 +31,29 @@ extra packages.
 
    This produces `app/consapp/rtkrcv/gcc/rtkrcv`.
 
-2. Make your private copy of the configuration:
+2. Put your caster login in `conf/.env`:
 
    ```bash
    cd ../conf
-   cp single.conf single.conf.local
+   cp .env.example .env
    ```
 
-   `single.conf` is the shared template and contains no logins.
-   `single.conf.local` is yours: git ignores it, so a caster password put there
-   is never committed.
-
-3. Open `single.conf.local` and set at least the rover stream. For an NTRIP
-   caster:
+   Then edit `.env`:
 
    ```
-   inpstr1-type       =ntripcli
-   inpstr1-path       =USER:PASSWORD@CASTER_HOST:2101/MOUNTPOINT
-   inpstr1-format     =rtcm3
+   NTRIP_USER=your-caster-user
+   NTRIP_PASSWORD=your-caster-password
+   NTRIP_HOST=caster.example.com
+   NTRIP_PORT=2101
+   NTRIP_MOUNTPOINT=MOUNTPOINT
    ```
 
-   Replace `USER`, `PASSWORD`, `CASTER_HOST`, the port and `MOUNTPOINT` with
-   the values from your caster account. See [Configuration](#configuration) for
-   the rest.
+   Git ignores `.env`, so the login is never committed. The sample
+   configuration `single.conf` refers to these values by name and contains no
+   login itself; see [Logins and private values](#logins-and-private-values).
+
+3. Adjust anything else in `conf/single.conf`. See
+   [Configuration](#configuration).
 
 ## Running
 
@@ -62,7 +62,7 @@ Start it from the `gcc` folder, because relative paths in the configuration
 
 ```bash
 cd app/consapp/rtkrcv/gcc
-./rtkrcv -s -o ../conf/single.conf.local
+./rtkrcv -s -o ../conf/single.conf
 ```
 
 `-s` starts processing immediately and `-o` names the configuration file. You
@@ -98,9 +98,8 @@ cd app/consapp/rtkrcv/ui
 python3 server.py
 ```
 
-This opens `http://127.0.0.1:8765/`. It edits `conf/single.conf.local` if that
-file exists, otherwise `conf/single.conf`; use `--conf FILE` for another file
-and `--port N` for another port.
+This opens `http://127.0.0.1:8765/`. It edits `conf/single.conf`; use
+`--conf FILE` for another file and `--port N` for another port.
 
 - **Configuration pages** show every option in the file with the values this
   build accepts. Saving rewrites only the lines you changed; comments and
@@ -126,11 +125,38 @@ The explanatory comments in `single.conf` (the lists in brackets) were written
 for an older RTKLIB and some are out of date. Use the tables below, or the web
 UI, for the values this build accepts.
 
+### Logins and private values
+
+Keep logins out of the options file. In any stream path (`inpstrN-path`,
+`outstrN-path`, `logstrN-path`), `${NAME}` is replaced when the server starts:
+
+```
+inpstr1-path       =${NTRIP_USER}:${NTRIP_PASSWORD}@${NTRIP_HOST}:${NTRIP_PORT}/${NTRIP_MOUNTPOINT}
+```
+
+`rtkrcv` takes each value from the environment variable `NAME` or, if that is
+not set, from the file `.env` in the same folder as the options file. An
+environment variable therefore overrides `.env`:
+
+```bash
+NTRIP_MOUNTPOINT=OTHER ./rtkrcv -s -o ../conf/single.conf
+```
+
+`.env` holds one `NAME=VALUE` per line. The value is the rest of the line, so a
+password may contain `#`, `@`, `:` or spaces; quotes around it are optional.
+Lines starting with `#` are comments. The names are free: use any you like in
+the path and define the same ones in `.env`.
+
+If a name is not set anywhere, the server refuses to start and says which one.
+The `option` and `save` console commands and the web UI show the path as
+written, with the placeholders. The filled-in path does appear in the first 24
+characters of the `stream` command's Path column and in trace files (`-t`).
+
 ### The minimum to change
 
 | To do this | Set |
 |---|---|
-| Read from an NTRIP caster | `inpstr1-type =ntripcli`, `inpstr1-path =USER:PASSWORD@HOST:PORT/MOUNTPOINT`, `inpstr1-format =rtcm3` |
+| Read from an NTRIP caster | `inpstr1-type =ntripcli`, `inpstr1-format =rtcm3`, keep the sample `inpstr1-path` and put the login in `conf/.env` |
 | Read from a u-blox receiver on USB | `inpstr1-type =serial`, `inpstr1-path =cu.usbmodem1101:115200:8:n:1:off` (the device name under `/dev`), `inpstr1-format =ubx` |
 | Standalone position, no base station | `pos1-posmode =single` |
 | RTK with a base station | `pos1-posmode =kinematic`, fill in `inpstr2-type`, `inpstr2-path`, `inpstr2-format`, and set `ant2-postype =rtcm` |
@@ -150,13 +176,14 @@ the matching `-type`:
 | `file` | `path` — for input, add `::T` to replay at recorded speed; in output paths `%Y %m %d %h %M %S` are replaced by the time and `::S=hours` starts a new file at that interval | `./output/single_%Y%m%d.pos` |
 | `tcpsvr` | `:port` | `:10009/` |
 | `tcpcli` | `addr:port` | `192.168.0.11:10008` |
-| `ntripcli` | `user:passwd@addr:port/mntpnt` | `USER:PASSWORD@CASTER_HOST:2101/MOUNTPOINT` |
+| `ntripcli` | `user:passwd@addr:port/mntpnt` | `${NTRIP_USER}:${NTRIP_PASSWORD}@${NTRIP_HOST}:2101/MOUNTPOINT` |
 | `ntripsvr` | `user:passwd@addr:port/mntpnt[:str]` | |
 | `ftp` | `user:passwd@addr/path` | |
 | `http` | `addr/path` | |
 
-A value cannot contain `#`, because the rest of the line would be read as a
-comment.
+A value in the options file cannot contain `#`, because the rest of the line
+would be read as a comment. Put such a value in `.env` and refer to it with
+`${NAME}`.
 
 ## Option reference
 
@@ -170,7 +197,7 @@ write for a choice, or the kind of value and its unit.
 | Option | What to put | Accepted values |
 |---|---|---|
 | `inpstr1-type` | Where the **rover** data comes from. Required. | `off`, `serial`, `file`, `tcpsvr`, `tcpcli`, `ntripcli`, `ftp`, `http` |
-| `inpstr1-path` | Address of the rover stream, in the form that matches its type (see [Stream paths](#stream-paths)). | text |
+| `inpstr1-path` | Address of the rover stream, in the form that matches its type (see [Stream paths](#stream-paths)). Use `${NAME}` for the login (see [Logins and private values](#logins-and-private-values)). | text |
 | `inpstr1-format` | Format of the rover data. It must match what the source really sends: `rtcm3` for most NTRIP casters, `ubx` for a u-blox receiver's raw output. A wrong format connects but decodes nothing. | `rtcm2`, `rtcm3`, `oem4`, `oem3`, `ubx`, `ss2`, `hemis`, `skytraq`, `gw10`, `javad`, `nvs`, `binex`, `rt17`, `sbf`, `cmr`, `tersus`, `sp3` |
 | `inpstr2-type` | Where the **base station** data comes from. Needed for `dgps`, `kinematic`, `static`, `movingbase` and `fixed`; leave `off` for `single` and PPP. | `off`, `serial`, `file`, `tcpsvr`, `tcpcli`, `ntripcli`, `ftp`, `http` |
 | `inpstr2-path` | Address of the base station stream. | text |
@@ -397,6 +424,7 @@ All optional. Leave empty unless an option above says it needs one.
 | The input never connects, or connects and gets no data | Another `rtkrcv` is already using the caster login. `pgrep -l rtkrcv`, then `pkill rtkrcv`. Also check user, password and mountpoint. |
 | `output sol1` shows `waiting...` | Normal for `tcpsvr`: nothing has connected to the port yet. |
 | An option seems to have no effect | Its name is misspelt (ignored without any message), or its value is not one of the accepted names (`invalid option value` is printed at startup and the default is kept). The web UI flags both. |
+| `variable ${NAME} in a stream path is not set` and the server does not start | A stream path uses `${NAME}` but `NAME` is neither in the environment nor in `.env` beside the options file. Add it to `conf/.env`. |
 | No position although data is decoded | Wait a minute or two after the first start: a position needs orbit data for each satellite, which arrives gradually. |
 | `undefined reference to clock_gettime` when building on Linux | The makefile links without `-lrt`, which macOS does not have. On Linux with glibc older than 2.17, add `-lrt` to `LDLIBS` in `gcc/makefile`. |
 
@@ -413,6 +441,10 @@ All optional. Leave empty unless an option above says it needs one.
   start and on the `status` command.
 - `rtkrcv.c`: starting with `-s` and a `file` output crashed in the overwrite
   check, which assumed a console existed.
-- `conf/single.conf`: sample configuration for single-point positioning from an
-  NTRIP caster, with solution output to TCP port 10009 and to a file.
+- `rtkrcv.c`: `${NAME}` in stream paths is filled in from the environment or
+  from a `.env` file beside the options file, so logins stay out of the
+  options file.
+- `conf/single.conf`, `conf/.env.example`: sample configuration for
+  single-point positioning from an NTRIP caster, with solution output to TCP
+  port 10009 and to a file.
 - `ui/`: the web UI.

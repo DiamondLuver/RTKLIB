@@ -228,6 +228,7 @@ function metaHtml(f) {
   const bits = [];
   if (f.key.endsWith("-path") && f.stream) {
     const h = PATH_HELP[val(f.stream + "-type")]; if (h) bits.push("Format: " + esc(h));
+    if (/\$\{[^}]+\}/.test(val(f.key))) bits.push("${NAME} is filled in from the environment or the .env file beside this options file");
   }
   if (!f.known) bits.push(`<span class="warnt">Not an option of this rtkrcv build — it is ignored</span>`);
   if (f.kind === "enum" && !f.choices.some(c => c.name === val(f.key)))
@@ -352,6 +353,8 @@ function monitorParts() {
     r.others.map(o => `<div class="row"><code>pid ${o.pid} · ${esc(o.command)}</code><button class="btn small danger" data-kill="${o.pid}">Stop it</button></div>`).join("") + `</div>`;
   if (r.stale) parts.stale = `<div class="note warn"><div class="row" style="margin:0"><span><b>The options file changed after rtkrcv started.</b> Restart to apply it.</span><button class="btn small" data-act="restart">Restart</button></div></div>`;
   if (r.error) parts.error = `<div class="note bad">${esc(r.error)}</div>`;
+  else if (r.running && r.live && r.live.status["rtk server state"] === "stop")
+    parts.error = `<div class="note bad"><h3>rtkrcv is up, but its server did not start</h3>Fix the cause below, then restart.${r.log ? `<pre>${esc(r.log)}</pre>` : ""}</div>`;
   if (!r.running) {
     const x = r.last_exit;
     if (x && !x.expected) parts.exit = `<div class="note bad"><h3>rtkrcv stopped unexpectedly (${esc(x.reason)})</h3>${x.log ? `<pre>${esc(x.log)}</pre>` : ""}</div>`;

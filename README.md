@@ -12,6 +12,6 @@ Quick start:
 
 ```bash
 cd app/consapp/rtkrcv/gcc && make
-cp ../conf/single.conf ../conf/single.conf.local   # then put your caster login in it
-./rtkrcv -s -o ../conf/single.conf.local
+cp ../conf/.env.example ../conf/.env   # then put your caster login in it
+./rtkrcv -s -o ../conf/single.conf
 ```

@@ -61,6 +61,9 @@
 #define OPTSDIR     "."                 /* default config directory */
 #define OPTSFILE    "rtkrcv.conf"       /* default config file */
 #define NAVIFILE    "rtkrcv.nav"        /* navigation save file */
+#define ENVFILE     ".env"              /* variables file in options file directory */
+#define MAXENV      64                  /* max number of variables in variables file */
+#define MAXENVNAME  64                  /* max length of a variable name */
 #define STATFILE    "rtkrcv_%Y%m%d%h%M.stat"  /* solution status file */
 #define TRACEFILE   "rtkrcv_%Y%m%d%h%M.trace" /* debug trace file */
 #define INTKEEPALIVE 1000               /* keep alive interval (ms) */
@@ -97,6 +100,9 @@ static int strtype[]={                  /* stream types */
     STR_SERIAL,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE,STR_NONE
 };
 static char strpath[8][MAXSTR]={"","","","","","","",""}; /* stream paths */
+static char envname[MAXENV][MAXENVNAME]; /* variables read from variables file */
+static char envval [MAXENV][MAXSTR];
+static int nenv=0;                      /* number of variables read */
 static int strfmt[]={                   /* stream formats */
     STRFMT_UBX,STRFMT_RTCM3,STRFMT_SP3,SOLF_LLH,SOLF_NMEA
 };
@@ -392,6 +398,92 @@ static void readant(vt_t *vt, prcopt_t *opt, nav_t *nav)
     
     free(pcvr.pcv); free(pcvs.pcv);
 }
+/* read variables file -----------------------------------------------------------
+* read variables for ${NAME} in stream paths from the file ".env" in the
+* directory of the options file, to keep logins out of the options file
+* args   : char   *optfile  I   options file path
+* notes  : each line is NAME=VALUE. lines starting with # and lines without =
+*          are ignored. "export " before NAME is accepted. VALUE is the rest of
+*          the line without surrounding spaces and optional '...' or "..."
+*-----------------------------------------------------------------------------*/
+static void readenv(const char *optfile)
+{
+    FILE *fp;
+    char path[MAXSTR+16],buff[MAXSTR+MAXENVNAME+16],*name,*val,*p;
+    size_t n;
+    
+    trace(3,"readenv: optfile=%s\n",optfile);
+    
+    nenv=0;
+    sprintf(path,"%.*s",MAXSTR-1,optfile);
+    if ((p=strrchr(path,'/'))) strcpy(p+1,ENVFILE); else strcpy(path,ENVFILE);
+    
+    if (!(fp=fopen(path,"r"))) return;
+    
+    while (fgets(buff,sizeof(buff),fp)&&nenv<MAXENV) {
+        for (name=buff;*name==' '||*name=='\t';name++) ;
+        if (!strncmp(name,"export ",7)) {
+            for (name+=7;*name==' '||*name=='\t';name++) ;
+        }
+        if (*name=='#'||!(val=strchr(name,'='))) continue;
+        
+        for (p=val;p>name&&(*(p-1)==' '||*(p-1)=='\t');p--) ;
+        *p='\0';
+        for (val++;*val==' '||*val=='\t';val++) ;
+        for (n=strlen(val);n>0&&strchr(" \t\r\n",val[n-1]);n--) ;
+        val[n]='\0';
+        if (n>=2&&(*val=='"'||*val=='\'')&&val[n-1]==*val) {
+            val[n-1]='\0'; val++;
+        }
+        if (!*name||strlen(name)>=MAXENVNAME||strlen(val)>=MAXSTR) continue;
+        strcpy(envname[nenv],name);
+        strcpy(envval[nenv++],val);
+    }
+    fclose(fp);
+}
+/* expand variables ------------------------------------------------------------
+* replace ${NAME} in a string by the environment variable NAME or, if it is not
+* set, by NAME in the variables file
+* args   : char   *str      I   string
+*          char   *out      O   expanded string
+*          int    size      I   size of out (bytes)
+*          char   *err      O   variable name not set or "" for too long string
+*                               (size>=MAXENVNAME)
+* return : status (1:ok,0:error)
+*-----------------------------------------------------------------------------*/
+static int expandenv(const char *str, char *out, int size, char *err)
+{
+    const char *p,*q,*val;
+    char name[MAXENVNAME];
+    int i,n=0,len;
+    
+    *err='\0';
+    for (p=str;*p;) {
+        if (p[0]=='$'&&p[1]=='{'&&(q=strchr(p+2,'}'))&&q-p-2<MAXENVNAME) {
+            len=(int)(q-p-2);
+            strncpy(name,p+2,len); name[len]='\0';
+            if (!(val=getenv(name))) {
+                for (i=0;i<nenv;i++) {
+                    if (!strcmp(name,envname[i])) {val=envval[i]; break;}
+                }
+            }
+            if (!val) {
+                strcpy(err,name);
+                return 0;
+            }
+            len=(int)strlen(val);
+            if (n+len>=size) return 0;
+            strcpy(out+n,val); n+=len;
+            p=q+1;
+        }
+        else {
+            if (n+1>=size) return 0;
+            out[n++]=*p++;
+        }
+    }
+    out[n]='\0';
+    return 1;
+}
 /* start rtk server ----------------------------------------------------------*/
 static int startsvr(vt_t *vt)
 {
@@ -400,14 +492,28 @@ static int startsvr(vt_t *vt)
     char s1[3][MAXRCVCMD]={"","",""},*cmds[]={NULL,NULL,NULL};
     char s2[3][MAXRCVCMD]={"","",""},*cmds_periodic[]={NULL,NULL,NULL};
     char *ropts[]={"","",""};
+    static char xpath[8][MAXSTR]; /* stream paths with variables expanded */
     char *paths[]={
-        strpath[0],strpath[1],strpath[2],strpath[3],strpath[4],strpath[5],
-        strpath[6],strpath[7]
+        xpath[0],xpath[1],xpath[2],xpath[3],xpath[4],xpath[5],xpath[6],xpath[7]
     };
-    char errmsg[2048]="";
+    char errmsg[2048]="",name[MAXENVNAME];
     int i,ret,stropt[8]={0};
     
     trace(3,"startsvr:\n");
+    
+    /* expand variables in stream paths. the paths in options are kept as they
+       are, so that logins are not shown or saved by option and save commands */
+    for (i=0;i<8;i++) {
+        if (expandenv(strpath[i],xpath[i],MAXSTR,name)) continue;
+        if (*name) sprintf(errmsg,"variable ${%s} in a stream path is not set: "
+                           "set it in the environment or in the %s file beside "
+                           "the options file",name,ENVFILE);
+        else sprintf(errmsg,"stream path too long");
+        trace(2,"%s\n",errmsg);
+        vt_printf(vt,"%s\n",errmsg);
+        if (!vt) fprintf(stderr,"%s\n",errmsg);
+        return 0;
+    }
     
     /* read start commads from command files */
     for (i=0;i<3;i++) {
@@ -423,7 +529,7 @@ static int startsvr(vt_t *vt)
     }
     /* confirm overwrite */
     for (i=3;i<8;i++) {
-        if (strtype[i]==STR_FILE&&!confwrite(vt,strpath[i])) return 0;
+        if (strtype[i]==STR_FILE&&!confwrite(vt,xpath[i])) return 0;
     }
     if (prcopt.refpos==4) { /* rtcm */
         for (i=0;i<3;i++) prcopt.rb[i]=0.0;
@@ -1245,6 +1351,7 @@ static void cmd_load(char **args, int narg, vt_t *vt)
         vt_printf(vt,"no options file: %s\n",file);
         return;
     }
+    readenv(file);
     vt_printf(vt,"options loaded from %s. restart to enable them\n",file);
 }
 /* save command --------------------------------------------------------------*/
@@ -1653,6 +1760,7 @@ int main(int argc, char **argv)
         fprintf(stderr,"no options file: %s. defaults used\n",file);
     }
     getsysopts(&prcopt,solopt,&filopt);
+    readenv(file);
     
     /* read navigation data */
     if (!readnav(NAVIFILE,&svr.nav)) {

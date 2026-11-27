@@ -6,8 +6,8 @@ starts/stops/monitors rtkrcv through its telnet console.
 
     python3 server.py [--conf FILE] [--port N] [--no-open]
 
-Without --conf it uses conf/single.conf.local if that file exists, otherwise
-conf/single.conf.
+Stream logins are not kept in the options file: rtkrcv fills ${NAME} in stream
+paths from the environment or from the .env file beside the options file.
 
 Only the standard library is used. The server listens on 127.0.0.1 only.
 """
@@ -29,11 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RTKRCV_DIR = os.path.dirname(HERE)
-# conf/single.conf is the shared template; conf/single.conf.local is the private
-# copy with real stream logins (ignored by git) and is preferred when present
 DEFAULT_CONF = os.path.join(RTKRCV_DIR, "conf", "single.conf")
-if os.path.isfile(DEFAULT_CONF + ".local"):
-    DEFAULT_CONF += ".local"
 RUN_DIR = os.path.join(RTKRCV_DIR, "gcc")       # rtkrcv is started from here
 BINARY = os.path.join(RUN_DIR, "rtkrcv")
 PROMPT = "rtkrcv> "
@@ -547,6 +543,9 @@ class Runner:
                 "others": self.others(),
                 "live": live,
                 "error": error,
+                # rtkrcv keeps running when the server refuses to start (e.g. a
+                # ${NAME} in a stream path is not set); its message is in the log
+                "log": self._log_tail() if live and live["status"].get("rtk server state") == "stop" else "",
                 "built": os.access(BINARY, os.X_OK),
             }
 
@@ -645,7 +644,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     ap = argparse.ArgumentParser(description="Web UI for rtkrcv")
-    ap.add_argument("--conf", default=DEFAULT_CONF, help="options file (default: conf/single.conf.local if present, else conf/single.conf)")
+    ap.add_argument("--conf", default=DEFAULT_CONF, help="options file (default: conf/single.conf)")
     ap.add_argument("--port", type=int, default=8765, help="web port (default: 8765)")
     ap.add_argument("--console-port", type=int, default=2950,
                     help="telnet console port given to rtkrcv (default: 2950)")
